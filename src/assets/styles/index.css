@@ -1,16 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
 :root {
-  --primary-color: #0d52ec; /* 锐捷蓝 / 教育蓝 */
-  --primary-hover: #316bed;
-  --bg-sidebar: #f5f7fa;
-  --bg-main: #ffffff;
-  --bg-context: #f9fafb;
-  --text-main: #303133;
-  --text-secondary: #606266;
-  --text-disabled: #a8abb2;
-  --border-color: #dcdfe6;
+  --primary-color: #4f46e5; /* 靛蓝色 (Indigo)，更显高级 */
+  --primary-hover: #4338ca;
+  --bg-sidebar: #f8fafc; /* 极淡蓝灰 */
+  --bg-main: #fcfcfd;
+  --bg-context: #ffffff;
+  --text-main: #0f172a;
+  --text-secondary: #475569;
+  --text-disabled: #94a3b8;
+  --border-color: #e2e8f0; /* 更轻畅的边框 */
   --sidebar-width: 260px;
   --context-width: 350px;
   --header-height: 60px;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --border-radius: 8px;
 }
 
 html, body {
@@ -18,10 +23,11 @@ html, body {
   padding: 0;
   height: 100vh;
   width: 100vw;
-  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   color: var(--text-main);
   background-color: var(--bg-main);
   overflow: hidden; /* 防止出现外层滚动条 */
+  -webkit-font-smoothing: antialiased;
 }
 
 * {

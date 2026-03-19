@@ -2,16 +2,21 @@
   <div class="context-container">
     <div class="context-header">
       <h3>资料与生成结果</h3>
+      <button class="icon-btn"><Settings2 class="btn-icon" /></button>
     </div>
     <div class="context-body">
       
       <div class="section">
         <div class="section-title">
           <span>课件与教案</span>
+          <span class="badge">0</span>
         </div>
         <div class="card-list">
-          <div class="card item-card empty-card">
-            待生成课件与教案
+          <div class="card empty-card">
+            <div class="empty-card-content">
+              <Layers class="empty-icon" />
+              <span>待生成课件与教案</span>
+            </div>
           </div>
         </div>
       </div>
@@ -19,21 +24,34 @@
       <div class="section">
         <div class="section-title">
           <span>知识库文件</span>
+          <span class="badge">2</span>
         </div>
         <div class="card-list">
           <div class="card file-card">
-            <el-icon class="file-icon"><Document /></el-icon>
-            <div class="file-info">
-              <div class="file-name">初中物理课程标准.pdf</div>
-              <div class="file-status success">已解析</div>
+            <div class="icon-wrapper pdf-icon">
+              <FileText class="file-icon" />
             </div>
+            <div class="file-info">
+              <div class="file-name" title="初中物理课程标准.pdf">初中物理课程标准.pdf</div>
+              <div class="file-meta">
+                <span class="file-status success">已解析</span>
+                <span class="file-size">2.4 MB</span>
+              </div>
+            </div>
+            <button class="more-btn"><MoreVertical class="more-icon" /></button>
           </div>
           <div class="card file-card">
-            <el-icon class="file-icon"><VideoCamera /></el-icon>
-            <div class="file-info">
-              <div class="file-name">牛顿第一定律教学视频.mp4</div>
-              <div class="file-status pending">解析中...</div>
+            <div class="icon-wrapper video-icon">
+              <Video class="file-icon" />
             </div>
+            <div class="file-info">
+              <div class="file-name" title="牛顿第一定律教学视频.mp4">牛顿第一定律教学视频.mp4</div>
+              <div class="file-meta">
+                <span class="file-status pending">解析中...</span>
+                <span class="file-size">18.5 MB</span>
+              </div>
+            </div>
+            <button class="more-btn"><MoreVertical class="more-icon" /></button>
           </div>
         </div>
       </div>
@@ -41,6 +59,10 @@
     </div>
   </div>
 </template>
+
+<script setup>
+import { Settings2, Layers, FileText, Video, MoreVertical } from 'lucide-vue-next'
+</script>
 
 <style scoped>
 .context-container {
@@ -54,31 +76,67 @@
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 20px;
+  background-color: var(--bg-context);
 }
 
 .context-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-main);
 }
 
+.icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  transition: background-color 0.2s;
+}
+.icon-btn:hover {
+  background-color: #f1f5f9;
+  color: var(--text-main);
+}
+.btn-icon {
+  width: 18px;
+  height: 18px;
+}
+
 .context-body {
   flex: 1;
-  padding: 20px;
+  padding: 24px 20px;
   overflow-y: auto;
+  background-color: var(--bg-context);
 }
 
 .section {
-  margin-bottom: 30px;
+  margin-bottom: 32px;
 }
 
 .section-title {
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+  letter-spacing: 0.5px;
+}
+
+.badge {
+  background-color: #f1f5f9;
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 8px;
+  font-weight: 500;
 }
 
 .card-list {
@@ -89,65 +147,136 @@
 
 .card {
   background-color: #ffffff;
-  border-radius: 8px;
-  padding: 12px 16px;
+  border-radius: 10px;
+  padding: 16px;
   border: 1px solid var(--border-color);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-  transition: box-shadow 0.2s, border-color 0.2s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  transition: all 0.2s ease;
   cursor: pointer;
+  position: relative;
 }
 
 .card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-  border-color: #c9d3e8;
+  box-shadow: 0 8px 16px -4px rgba(0,0,0,0.05), 0 4px 6px -2px rgba(0,0,0,0.025);
+  border-color: #cbd5e1;
+  transform: translateY(-2px);
 }
 
 .empty-card {
-  color: var(--text-disabled);
-  text-align: center;
-  padding: 24px 0;
-  font-size: 13px;
-  border-style: dashed;
-  background-color: transparent;
+  border: 1px dashed #cbd5e1;
+  background-color: #f8fafc;
   cursor: default;
 }
 .empty-card:hover {
+  transform: none;
   box-shadow: none;
-  border-color: var(--border-color);
+  border-color: var(--text-disabled);
+}
+
+.empty-card-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-disabled);
+  padding: 16px 0;
+  font-size: 13px;
+}
+.empty-icon {
+  width: 24px;
+  height: 24px;
+  margin-bottom: 8px;
+  opacity: 0.6;
 }
 
 .file-card {
   display: flex;
+  align-items: flex-start;
+  padding: 14px 16px;
+}
+
+.icon-wrapper {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
   align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.pdf-icon {
+  background-color: #fee2e2;
+  color: #ef4444;
+}
+.video-icon {
+  background-color: #e0e7ff;
+  color: #4f46e5;
 }
 
 .file-icon {
-  font-size: 24px;
-  color: var(--primary-color);
-  margin-right: 12px;
+  width: 20px;
+  height: 20px;
 }
 
 .file-info {
   flex: 1;
   overflow: hidden;
+  margin-top: 1px;
 }
 
 .file-name {
   font-size: 13px;
+  font-weight: 500;
   color: var(--text-main);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.file-meta {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  gap: 12px;
 }
 
 .file-status {
-  font-size: 12px;
+  font-weight: 500;
 }
 .file-status.success {
-  color: #67c23a;
+  color: #10b981;
 }
 .file-status.pending {
-  color: #e6a23c;
+  color: #f59e0b;
+}
+
+.file-size {
+  color: var(--text-disabled);
+}
+
+.more-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-disabled);
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 8px;
+  margin-top: -2px;
+  margin-right: -8px;
+  transition: all 0.2s;
+  display: flex;
+}
+.more-btn:hover {
+  color: var(--text-main);
+  background-color: #f1f5f9;
+}
+.more-icon {
+  width: 16px;
+  height: 16px;
 }
 </style>

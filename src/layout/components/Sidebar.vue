@@ -1,51 +1,53 @@
 <template>
   <div class="sidebar">
     <div class="logo-area">
-      <el-icon class="logo-icon"><Platform /></el-icon>
+      <div class="logo-icon-wrapper">
+        <MonitorPlay class="logo-icon" />
+      </div>
       <span class="logo-text">智课伴侣</span>
     </div>
 
     <div class="plan-actions">
-      <el-button type="primary" class="new-plan-btn" @click="handleNewPlan">
-        <el-icon><Plus /></el-icon>
+      <button class="new-plan-btn" @click="handleNewPlan">
+        <Plus class="btn-icon" />
         新建教学计划
-      </el-button>
+      </button>
     </div>
 
     <div class="menu-container">
-      <el-menu
-        :default-active="activeSessionId"
-        class="plan-menu"
-        :default-openeds="[plans[0]?.id.toString()]"
-        @select="handleSelectSession"
-      >
-        <el-sub-menu v-for="plan in plans" :key="plan.id" :index="plan.id.toString()">
-          <template #title>
-            <el-icon><Folder /></el-icon>
-            <span class="plan-name" :title="plan.name">{{ plan.name }}</span>
-          </template>
-          
-          <el-menu-item 
+      <div v-for="plan in plans" :key="plan.id" class="plan-group">
+        <div class="plan-header" @click="togglePlan(plan.id)">
+          <ChevronRight class="toggle-icon" :class="{ 'is-open': openPlans.includes(plan.id) }" />
+          <FolderClosed class="plan-icon" v-if="!openPlans.includes(plan.id)" />
+          <FolderOpen class="plan-icon" v-else />
+          <span class="plan-name" :title="plan.name">{{ plan.name }}</span>
+        </div>
+        
+        <div class="session-list" v-show="openPlans.includes(plan.id)">
+          <div 
             v-for="session in plan.sessions" 
             :key="session.id" 
-            :index="session.id.toString()"
+            class="session-item"
+            :class="{ 'is-active': activeSessionId === session.id.toString() }"
+            @click="handleSelectSession(session.id.toString())"
           >
-            <el-icon><ChatDotRound /></el-icon>
+            <MessageSquare class="session-icon" />
             <span class="session-name">{{ session.name }}</span>
-          </el-menu-item>
-
-          <el-menu-item :index="'new_session_' + plan.id" class="new-session-item">
-            <el-icon><DocumentAdd /></el-icon>
+          </div>
+          
+          <div class="session-item new-session-item" @click="handleSelectSession('new_session_' + plan.id)">
+            <PlusCircle class="session-icon" />
             <span>新建会话</span>
-          </el-menu-item>
-        </el-sub-menu>
-      </el-menu>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
+import { MonitorPlay, Plus, FolderClosed, FolderOpen, ChevronRight, MessageSquare, PlusCircle } from 'lucide-vue-next'
 
 const plans = ref([
   { 
@@ -66,6 +68,16 @@ const plans = ref([
 ])
 
 const activeSessionId = ref('101')
+const openPlans = ref([1])
+
+const togglePlan = (id) => {
+  const index = openPlans.value.indexOf(id)
+  if (index > -1) {
+    openPlans.value.splice(index, 1)
+  } else {
+    openPlans.value.push(id)
+  }
+}
 
 const handleNewPlan = () => {
   console.log('新建教学计划')
@@ -92,14 +104,25 @@ const handleSelectSession = (index) => {
   display: flex;
   align-items: center;
   padding: 0 20px;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
-  color: var(--primary-color);
+  color: var(--text-main);
   border-bottom: 1px solid var(--border-color);
 }
+.logo-icon-wrapper {
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 10px;
+  box-shadow: var(--shadow-sm);
+}
 .logo-icon {
-  margin-right: 8px;
-  font-size: 24px;
+  width: 18px;
+  height: 18px;
+  color: white;
 }
 
 .plan-actions {
@@ -107,48 +130,126 @@ const handleSelectSession = (index) => {
 }
 .new-plan-btn {
   width: 100%;
-  border-radius: 8px;
+  border-radius: var(--border-radius);
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  padding: 10px 0;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+}
+.new-plan-btn:hover {
+  background-color: var(--primary-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+.btn-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
 }
 
 .menu-container {
   flex: 1;
   overflow-y: auto;
+  padding: 0 12px;
 }
 
-/* 覆盖 el-menu 的默认样式，使其更符合 SaaS 风格 */
-.plan-menu {
-  border-right: none;
-  background-color: transparent;
+.plan-group {
+  margin-bottom: 4px;
 }
-:deep(.el-sub-menu__title) {
-  font-weight: 500;
-  height: 44px;
-  line-height: 44px;
-}
-:deep(.el-menu-item) {
-  height: 40px;
-  line-height: 40px;
-  margin: 4px 12px;
+
+.plan-header {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 8px;
   border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-main);
+  font-weight: 500;
+  font-size: 13px;
+  transition: background-color 0.15s ease;
+}
+.plan-header:hover {
+  background-color: #e2e8f080;
+}
+.toggle-icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  color: var(--text-disabled);
+  transition: transform 0.2s ease;
+}
+.toggle-icon.is-open {
+  transform: rotate(90deg);
+}
+.plan-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
   color: var(--text-secondary);
 }
-:deep(.el-menu-item.is-active) {
-  background-color: #e6f0ff;
-  color: var(--primary-color);
-  font-weight: 500;
-}
-.new-session-item {
-  color: var(--primary-color) !important;
-  opacity: 0.8;
-}
-.new-session-item:hover {
-  opacity: 1;
-  background-color: transparent !important;
-}
-
 .plan-name {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.session-list {
+  padding-left: 22px;
+  margin-top: 2px;
+  margin-bottom: 8px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-bottom: 2px;
+  transition: all 0.15s ease;
+}
+.session-icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  opacity: 0.7;
+}
+
+.session-item:hover {
+  background-color: #e2e8f080;
+  color: var(--text-main);
+}
+.session-item.is-active {
+  background-color: #e0e7ff; /* light indigo */
+  color: var(--primary-hover);
+  font-weight: 500;
+}
+.session-item.is-active .session-icon {
+  opacity: 1;
+  color: var(--primary-color);
+}
+
+.new-session-item {
+  color: var(--text-disabled);
+}
+.new-session-item:hover {
+  color: var(--primary-color);
+  background-color: transparent;
+}
+.new-session-item .session-icon {
+  opacity: 1;
 }
 </style>
