@@ -1,0 +1,34 @@
+:root {
+  --primary-color: #0d52ec; /* 锐捷蓝 / 教育蓝 */
+  --primary-hover: #316bed;
+  --bg-sidebar: #f5f7fa;
+  --bg-main: #ffffff;
+  --bg-context: #f9fafb;
+  --text-main: #303133;
+  --text-secondary: #606266;
+  --text-disabled: #a8abb2;
+  --border-color: #dcdfe6;
+  --sidebar-width: 260px;
+  --context-width: 350px;
+  --header-height: 60px;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  width: 100vw;
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
+  color: var(--text-main);
+  background-color: var(--bg-main);
+  overflow: hidden; /* 防止出现外层滚动条 */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+#app {
+  height: 100%;
+  width: 100%;
+}
