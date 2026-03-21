@@ -9,14 +9,21 @@
       <div class="section">
         <div class="section-title">
           <span>课件与教案</span>
-          <span class="badge">0</span>
+          <span class="badge">1</span>
         </div>
         <div class="card-list">
-          <div class="card empty-card">
-            <div class="empty-card-content">
-              <Layers class="empty-icon" />
-              <span>待生成课件与教案</span>
+          <div class="card file-card" @click="openPreview('《函数的引入》初稿教案.docx')">
+            <div class="icon-wrapper pdf-icon">
+              <FileText class="file-icon" />
             </div>
+            <div class="file-info">
+              <div class="file-name" title="《函数的引入》初稿教案.docx">《函数的引入》初稿教案.docx</div>
+              <div class="file-meta">
+                <span class="file-status success">新生成</span>
+                <span class="file-size">14KB</span>
+              </div>
+            </div>
+            <button class="more-btn" @click.stop><MoreVertical class="more-icon" /></button>
           </div>
         </div>
       </div>
@@ -27,7 +34,7 @@
           <span class="badge">2</span>
         </div>
         <div class="card-list">
-          <div class="card file-card">
+          <div class="card file-card" @click="openPreview('1')">
             <div class="icon-wrapper pdf-icon">
               <FileText class="file-icon" />
             </div>
@@ -38,9 +45,9 @@
                 <span class="file-size">2.4 MB</span>
               </div>
             </div>
-            <button class="more-btn"><MoreVertical class="more-icon" /></button>
+            <button class="more-btn" @click.stop><MoreVertical class="more-icon" /></button>
           </div>
-          <div class="card file-card">
+          <div class="card file-card" @click="openPreview('2')">
             <div class="icon-wrapper video-icon">
               <Video class="file-icon" />
             </div>
@@ -51,17 +58,30 @@
                 <span class="file-size">18.5 MB</span>
               </div>
             </div>
-            <button class="more-btn"><MoreVertical class="more-icon" /></button>
+            <button class="more-btn" @click.stop><MoreVertical class="more-icon" /></button>
           </div>
         </div>
       </div>
 
     </div>
+    
+    <!-- 弹层预览组件 -->
+    <FilePreviewPanel v-model:visible="isPreviewVisible" :fileId="previewFileId" />
   </div>
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { Settings2, Layers, FileText, Video, MoreVertical } from 'lucide-vue-next'
+import FilePreviewPanel from '../FilePreviewPanel/index.vue'
+
+const isPreviewVisible = ref(false)
+const previewFileId = ref(null)
+
+const openPreview = (fileId) => {
+  previewFileId.value = fileId
+  isPreviewVisible.value = true
+}
 </script>
 
 <style scoped>
@@ -69,6 +89,7 @@ import { Settings2, Layers, FileText, Video, MoreVertical } from 'lucide-vue-nex
   display: flex;
   flex-direction: column;
   height: 100%;
+  position: relative;
 }
 
 .context-header {
