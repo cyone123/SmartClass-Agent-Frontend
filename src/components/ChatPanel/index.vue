@@ -30,9 +30,99 @@
             <Bot v-else class="avatar-icon" />
           </div>
           <div class="message-content">
-            <div class="message-bubble" v-if="msg.content">
-              {{ msg.content }}
-            </div>
+            <template v-if="!msg.type || msg.type === 'text'">
+              <div class="message-bubble" v-if="msg.content">
+                {{ msg.content }}
+              </div>
+            </template>
+            
+            <template v-else-if="msg.type === 'structure-card'">
+              <div class="structure-card" :class="{ 'is-confirmed': msg.confirmed }">
+                <div class="card-header">
+                  <div class="header-title">
+                    <Sparkles class="header-icon" />
+                    <h4>教学要素提取</h4>
+                  </div>
+                  <div v-if="msg.confirmed" class="status-badge success"><CheckCircle class="status-icon"/> 已确认</div>
+                  <div v-else class="status-badge pending"><Clock class="status-icon"/> 待确认</div>
+                </div>
+                <div class="card-body">
+                  <div class="info-grid">
+                    <div class="info-item">
+                      <span class="info-label">课程主题</span>
+                      <span class="info-val">{{ msg.data.topic }}</span>
+                    </div>
+                    <div class="info-item">
+                      <span class="info-label">学生对象</span>
+                      <span class="info-val">{{ msg.data.audience }}</span>
+                    </div>
+                    <div class="info-item full-width">
+                      <span class="info-label">教学目标</span>
+                      <span class="info-val">{{ msg.data.goal }}</span>
+                    </div>
+                    <div class="info-item full-width">
+                      <span class="info-label">知识点清单</span>
+                      <ul class="info-list">
+                        <li v-for="(point, pIdx) in msg.data.points" :key="pIdx">{{ point }}</li>
+                      </ul>
+                    </div>
+                    <div class="info-item full-width">
+                      <span class="info-label">重难点分析</span>
+                      <div class="info-val">
+                        <div><strong>重点:</strong> {{ msg.data.focus }}</div>
+                        <div style="margin-top:4px;"><strong>难点:</strong> {{ msg.data.difficulty }}</div>
+                      </div>
+                    </div>
+                    <div class="info-item full-width">
+                      <span class="info-label">大致逻辑顺序</span>
+                      <span class="info-val">{{ msg.data.sequence }}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="card-action" v-if="!msg.confirmed">
+                  <button class="confirm-btn" @click="confirmStructure(msg)">
+                    <Check class="btn-icon" /> 确认以上信息并开始生成
+                  </button>
+                </div>
+              </div>
+            </template>
+            
+            <template v-else-if="msg.type === 'progress-card'">
+              <div class="progress-card">
+                <div class="card-header">
+                  <div class="header-title">
+                    <CheckCircle class="header-icon success-icon" v-if="msg.isComplete" />
+                    <Wand2 class="header-icon" v-else />
+                    <h4>{{ msg.isComplete ? '教案与 PPT 生成完成' : 'AI 智能生成中...' }}</h4>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="timeline">
+                    <div 
+                      v-for="(step, sIdx) in msg.steps" 
+                      :key="sIdx"
+                      class="timeline-item"
+                      :class="{ 
+                        'is-completed': sIdx < msg.currentStepIndex, 
+                        'is-active': sIdx === msg.currentStepIndex,
+                        'is-pending': sIdx > msg.currentStepIndex
+                      }"
+                    >
+                      <div class="timeline-tail" v-if="sIdx < msg.steps.length - 1"></div>
+                      <div class="timeline-node">
+                        <Check v-if="sIdx < msg.currentStepIndex" class="node-icon check" />
+                        <Loader2 v-else-if="sIdx === msg.currentStepIndex" class="node-icon spin" />
+                        <div v-else class="node-dot"></div>
+                      </div>
+                      <div class="timeline-content">
+                        {{ step.name }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
             
             <div v-if="msg.attachments && msg.attachments.length > 0" class="message-attachments">
               <div v-for="file in msg.attachments" :key="file.id" class="attachment-card sent-attachment">
@@ -103,7 +193,7 @@
 import { ref, computed, nextTick } from 'vue'
 import { 
   MessageSquarePlus, Paperclip, LayoutTemplate, Send, MoreHorizontal, 
-  User, Bot, FileText, Loader2, X 
+  User, Bot, FileText, Loader2, X, Sparkles, CheckCircle, Clock, Check, Wand2
 } from 'lucide-vue-next'
 
 const chatBodyRef = ref(null)
@@ -151,23 +241,90 @@ const sendMessage = () => {
   
   messages.value.push({
     role: 'teacher',
+    type: 'text',
     content,
     attachments: attachments.length > 0 ? attachments : undefined
   })
+  
+  const isTriggerKeyword = content.includes('开始生成')
   
   inputText.value = ''
   pendingAttachments.value = []
   
   scrollToBottom()
   
-  // Mock AI response
   setTimeout(() => {
-    messages.value.push({
-      role: 'ai',
-      content: '请补充教学对象和目标'
-    })
+    if (isTriggerKeyword) {
+      messages.value.push({
+        role: 'ai',
+        type: 'structure-card',
+        confirmed: false,
+        data: {
+          topic: '高一数学 - 函数的引入与基本概念',
+          audience: '高一新生（具有初中代数浅层基础）',
+          goal: '理解函数的映射本质，掌握定义域、值域基本知识。',
+          points: ['1. 常规与映射的区别', '2. 定义域求解准则', '3. 解析式书写'],
+          focus: '从初中变量观念过渡到高中映射观念。',
+          difficulty: '抽象函数的理解与定义域求解。',
+          sequence: '生活情境引入 -> 知识回顾对比 -> 引出新定义 -> 重难点解析 -> 练习'
+        }
+      })
+    } else {
+      messages.value.push({
+        role: 'ai',
+        type: 'text',
+        content: '请确认教学对象和目标是否完善。若您已准备好，请输入“开始生成”。'
+      })
+    }
     scrollToBottom()
   }, 800)
+}
+
+const confirmStructure = (msg) => {
+  msg.confirmed = true
+  
+  setTimeout(() => {
+    // 1. 发送进度卡片
+    const progressMsg = {
+      role: 'ai',
+      type: 'progress-card',
+      currentStepIndex: 0,
+      isComplete: false,
+      steps: [
+        { name: '整理生成计划' },
+        { name: '检索本地知识库中...' },
+        { name: '生成教案中...' },
+        { name: '生成配套PPT和互动小游戏' }
+      ]
+    }
+    messages.value.push(progressMsg)
+    scrollToBottom()
+    
+    // 2. 模拟服务器流式下发 SSE 的进度推演
+    const simulateSSE = async () => {
+      const delays = [1200, 1500, 2500, 1500] // 稍微加快一点演示节奏
+      // 取出被 Vue 包装过后的响应式代理对象，解决原始对象变动不触发渲染的 Bug
+      const reactiveMsg = messages.value[messages.value.length - 1]
+      
+      for (let i = 0; i < delays.length; i++) {
+        await new Promise(resolve => setTimeout(resolve, delays[i]))
+        reactiveMsg.currentStepIndex = i + 1
+      }
+      reactiveMsg.isComplete = true
+      
+      // 3. 最终完结的总结性口吻消息
+      setTimeout(() => {
+        messages.value.push({
+          role: 'ai',
+          type: 'text',
+          content: '这是一份根据您的需求生成的《高一数学 - 函数的引入》教案与配套 PPT，右侧资料区已同步更新。您看看是否需要对某些环节进行调整？'
+        })
+        scrollToBottom()
+      }, 600)
+    }
+    simulateSSE()
+    
+  }, 600)
 }
 
 const scrollToBottom = async () => {
@@ -553,5 +710,256 @@ const scrollToBottom = async () => {
   font-size: 12px;
   color: var(--text-disabled);
   margin-top: 12px;
+}
+
+/* Structure Card */
+.structure-card {
+  background-color: #ffffff;
+  border: 1px solid var(--primary-color);
+  border-radius: 12px;
+  width: 480px;
+  max-width: 100%;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.1);
+  overflow: hidden;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  margin-bottom: 8px;
+}
+.structure-card.is-confirmed {
+  border-color: var(--border-color);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+}
+
+.card-header {
+  background-color: rgba(79, 70, 229, 0.05);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(79, 70, 229, 0.1);
+  transition: all 0.4s ease;
+}
+.structure-card.is-confirmed .card-header {
+  background-color: #f8fafc;
+  border-bottom-color: var(--border-color);
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+}
+.header-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--primary-hover);
+  margin-right: 8px;
+}
+.structure-card.is-confirmed .header-icon {
+  color: var(--text-secondary);
+}
+.card-header h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #1e293b;
+  font-weight: 600;
+  transition: color 0.4s ease;
+}
+.structure-card.is-confirmed .card-header h4 {
+  color: var(--text-secondary);
+}
+
+.status-badge {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  font-weight: 500;
+}
+.status-badge.pending {
+  color: #fbbf24;
+}
+.status-badge.success {
+  color: #10b981;
+}
+.status-icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+}
+
+.card-body {
+  padding: 16px;
+  transition: opacity 0.4s ease;
+}
+.structure-card.is-confirmed .card-body {
+  opacity: 0.8;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.info-item {
+  display: flex;
+  flex-direction: column;
+}
+.info-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.info-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.info-val {
+  font-size: 13px;
+  color: var(--text-main);
+  line-height: 1.5;
+}
+.info-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-main);
+  line-height: 1.5;
+}
+.info-list li {
+  margin-bottom: 2px;
+}
+
+.card-action {
+  padding: 16px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
+  background-color: #fafafa;
+}
+
+.confirm-btn {
+  background-color: #10b981;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+  transition: all 0.2s;
+}
+.confirm-btn:hover {
+  background-color: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
+}
+
+/* Progress Card & Timeline */
+.progress-card {
+  background-color: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  width: 320px;
+  max-width: 100%;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.progress-card .card-header {
+  background-color: transparent;
+  padding: 14px 16px 8px;
+  border-bottom: none;
+}
+.header-icon.success-icon {
+  color: #10b981;
+}
+.progress-card .card-body {
+  padding: 0 20px 20px 20px;
+  opacity: 1;
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+}
+.timeline-item {
+  position: relative;
+  padding-bottom: 20px;
+  display: flex;
+  align-items: flex-start;
+}
+.timeline-item:last-child {
+  padding-bottom: 0;
+}
+.timeline-tail {
+  position: absolute;
+  left: 11px;
+  top: 24px;
+  bottom: 0;
+  width: 2px;
+  background-color: #e2e8f0;
+  transition: background-color 0.4s ease;
+}
+.timeline-item.is-completed .timeline-tail {
+  background-color: var(--primary-color);
+}
+.timeline-node {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #ffffff;
+  border: 2px solid transparent;
+  z-index: 1;
+  margin-right: 12px;
+  transition: all 0.4s ease;
+}
+.timeline-item.is-pending .timeline-node {
+  border-color: #cbd5e1;
+}
+.timeline-item.is-active .timeline-node {
+  color: var(--primary-color);
+  background-color: #eef2ff;
+}
+.timeline-item.is-completed .timeline-node {
+  background-color: var(--primary-color);
+  color: white;
+}
+.node-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #cbd5e1;
+}
+.node-icon.check {
+  width: 12px;
+  height: 12px;
+  stroke-width: 3;
+}
+.node-icon.spin {
+  animation: spin 1s linear infinite;
+}
+.timeline-content {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 24px;
+  margin-top: -1px;
+  transition: color 0.4s ease;
+}
+.timeline-item.is-pending .timeline-content {
+  color: var(--text-disabled);
+}
+.timeline-item.is-active .timeline-content {
+  color: var(--primary-hover);
+  font-weight: 600;
+}
+.timeline-item.is-completed .timeline-content {
+  color: var(--text-main);
 }
 </style>
