@@ -190,7 +190,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onBeforeUnmount } from 'vue'
 import { 
   MessageSquarePlus, Paperclip, LayoutTemplate, Send, MoreHorizontal, 
   User, Bot, FileText, Loader2, X, Sparkles, CheckCircle, Clock, Check, Wand2
@@ -204,11 +204,12 @@ const messages = ref([
 
 const inputText = ref('')
 const pendingAttachments = ref([])
+const threadId = ref('')
+const isStreaming = ref(false)
+const currentAbortController = ref(null)
 
 const canSend = computed(() => {
-  const hasText = inputText.value.trim().length > 0
-  const hasReadyFiles = pendingAttachments.value.some(file => file.status === 'success')
-  return hasText || hasReadyFiles
+  return inputText.value.trim().length > 0 && !isStreaming.value
 })
 
 const handleUploadMock = () => {
@@ -233,6 +234,135 @@ const removeAttachment = (id) => {
   }
 }
 
+const appendErrorMessage = (content = '对话请求失败，请稍后重试。') => {
+  messages.value.push({
+    role: 'ai',
+    type: 'text',
+    content
+  })
+}
+
+const parseSseEvent = (rawEvent) => {
+  const lines = rawEvent.split('\n')
+  let event = 'message'
+  const dataLines = []
+
+  for (const line of lines) {
+    if (!line.trim()) continue
+
+    if (line.startsWith('event:')) {
+      event = line.slice(6).trim()
+      continue
+    }
+
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart())
+    }
+  }
+
+  return {
+    event,
+    data: dataLines.join('\n')
+  }
+}
+
+const handleParsedEvent = async (event, data, aiMessageIndex) => {
+  if (event === 'metadata') {
+    const payload = JSON.parse(data)
+    if (payload.thread_id) {
+      threadId.value = payload.thread_id
+    }
+    return false
+  }
+
+  if (event === 'message') {
+    if (aiMessageIndex > -1) {
+      messages.value[aiMessageIndex].content += data
+      await scrollToBottom()
+    }
+    return false
+  }
+
+  return event === 'done'
+}
+
+const handleStreamResponse = async (response) => {
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+
+  if (!response.body) {
+    throw new Error('Empty response body')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  messages.value.push({
+    role: 'ai',
+    type: 'text',
+    content: ''
+  })
+  const aiMessageIndex = messages.value.length - 1
+  await scrollToBottom()
+
+  while (true) {
+    const { value, done } = await reader.read()
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+
+    const eventBlocks = buffer.split('\n\n')
+    buffer = eventBlocks.pop() ?? ''
+
+    for (const block of eventBlocks) {
+      const trimmedBlock = block.trim()
+      if (!trimmedBlock) continue
+
+      const { event, data } = parseSseEvent(trimmedBlock)
+      const shouldStop = await handleParsedEvent(event, data, aiMessageIndex)
+      if (shouldStop) {
+        return
+      }
+    }
+
+    if (done) {
+      if (buffer.trim()) {
+        const { event, data } = parseSseEvent(buffer.trim())
+        await handleParsedEvent(event, data, aiMessageIndex)
+      }
+      return
+    }
+  }
+}
+
+const requestStreamReply = async (content) => {
+  isStreaming.value = true
+  currentAbortController.value = new AbortController()
+
+  try {
+    const response = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: content,
+        thread_id: threadId.value || undefined
+      }),
+      signal: currentAbortController.value.signal
+    })
+
+    await handleStreamResponse(response)
+  } catch (error) {
+    if (error?.name !== 'AbortError') {
+      console.error('Streaming chat failed:', error)
+      appendErrorMessage()
+    }
+  } finally {
+    isStreaming.value = false
+    currentAbortController.value = null
+    await scrollToBottom()
+  }
+}
+
 const sendMessage = () => {
   if (!canSend.value) return
   
@@ -253,7 +383,7 @@ const sendMessage = () => {
   
   scrollToBottom()
   
-  setTimeout(() => {
+  setTimeout(async () => {
     if (isTriggerKeyword) {
       messages.value.push({
         role: 'ai',
@@ -270,11 +400,16 @@ const sendMessage = () => {
         }
       })
     } else {
-      messages.value.push({
-        role: 'ai',
-        type: 'text',
-        content: '请确认教学对象和目标是否完善。若您已准备好，请输入“开始生成”。'
-      })
+
+//TODO: 先不实现附件资料上传接口，只实现文本消息的发送，后续再完善多模态输入的处理逻辑
+      
+      await requestStreamReply(content)
+
+      // messages.value.push({
+      //   role: 'ai',
+      //   type: 'text',
+      //   content: '请确认教学对象和目标是否完善。若您已准备好，请输入“开始生成”。'
+      // })
     }
     scrollToBottom()
   }, 800)
@@ -333,6 +468,10 @@ const scrollToBottom = async () => {
     chatBodyRef.value.scrollTop = chatBodyRef.value.scrollHeight
   }
 }
+
+onBeforeUnmount(() => {
+  currentAbortController.value?.abort()
+})
 </script>
 
 <style scoped>
