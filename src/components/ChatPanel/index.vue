@@ -190,11 +190,17 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onBeforeUnmount } from 'vue'
+import { ref, computed, nextTick, onBeforeUnmount, watch } from 'vue'
 import { 
   MessageSquarePlus, Paperclip, LayoutTemplate, Send, MoreHorizontal, 
   User, Bot, FileText, Loader2, X, Sparkles, CheckCircle, Clock, Check, Wand2
 } from 'lucide-vue-next'
+import { useSessionStore } from '@/store/session'
+import { storeToRefs } from 'pinia'
+import { getMessageHistry } from '@/api/session'
+
+const sessionStore = useSessionStore()
+const { activeSessionId, activeThreadId: threadId } = storeToRefs(sessionStore)
 
 const chatBodyRef = ref(null)
 
@@ -204,7 +210,6 @@ const messages = ref([
 
 const inputText = ref('')
 const pendingAttachments = ref([])
-const threadId = ref('')
 const isStreaming = ref(false)
 const currentAbortController = ref(null)
 
@@ -468,6 +473,42 @@ const scrollToBottom = async () => {
     chatBodyRef.value.scrollTop = chatBodyRef.value.scrollHeight
   }
 }
+
+const loadHistory = async () => {
+  if (!activeSessionId.value) {
+    messages.value = []
+    return
+  }
+  
+  // 传用户定义的 thread_id（回退为 sessionId 以防有误）
+  const targetId = threadId.value || activeSessionId.value
+  
+  if (!targetId) {
+    messages.value = []
+    return
+  }
+  
+  try {
+    const res = await getMessageHistry(targetId)
+    if (res.data && res.data.messages) {
+      messages.value = res.data.messages
+    } else {
+      messages.value = []
+    }
+    await scrollToBottom()
+  } catch (error) {
+    console.error('获取历史消息失败', error)
+    messages.value = []
+  }
+}
+
+watch(
+  () => activeSessionId.value,
+  () => {
+    loadHistory()
+  },
+  { immediate: true }
+)
 
 onBeforeUnmount(() => {
   currentAbortController.value?.abort()
