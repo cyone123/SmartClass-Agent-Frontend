@@ -157,7 +157,7 @@ const removeSession = async (plan, session) => {
     
     // Switch active session if current is deleted
     if (activeSessionId.value === session.id.toString()) {
-      sessionStore.setActiveSession('', '')
+      sessionStore.setActiveSession('', '', plan.id)
     }
     ElMessage.success('删除成功')
   } catch (err) {
@@ -221,7 +221,7 @@ const handleSelectSession = (index, planId) => {
     }
   }
   
-  sessionStore.setActiveSession(index, targetThreadId)
+  sessionStore.setActiveSession(index, targetThreadId, planId)
 }
 
 const handleNewSession = (planId) => {
@@ -255,7 +255,7 @@ const saveNewSession = async (plan, session) => {
       const res = await addSessionAPI({ plan_id: plan.id, name: session.name })
       if (res.data?.id) session.id = res.data.id
       if (res.data?.thread_id) session.thread_id = res.data.thread_id
-      sessionStore.setActiveSession(session.id.toString(), session.thread_id || '')
+      sessionStore.setActiveSession(session.id.toString(), session.thread_id || '', plan.id)
     } catch (error) { console.error('新建会话失败', error) }
   } else {
     try {
@@ -275,20 +275,22 @@ const getPlanAndSessionList = async () => {
       if (!activeSessionId.value && res.data.length > 0 && res.data[0].sessions?.length > 0) {
         // If no active session, optionally select the first one
         const firstSession = res.data[0].sessions[0]
-        sessionStore.setActiveSession(firstSession.id.toString(), firstSession.thread_id || '')
+        sessionStore.setActiveSession(firstSession.id.toString(), firstSession.thread_id || '', res.data[0].id)
         openPlans.value.push(res.data[0].id)
       } else if (activeSessionId.value) {
         // Sync thread_id for initially hardcoded active session
         let targetThreadId = ''
+        let targetPlanId = ''
         for (const plan of plans.value) {
           if (!plan.sessions) continue
           const session = plan.sessions.find(s => s.id.toString() === activeSessionId.value.toString())
           if (session) {
             targetThreadId = session.thread_id || ''
+            targetPlanId = plan.id
             break
           }
         }
-        sessionStore.setActiveSession(activeSessionId.value, targetThreadId)
+        sessionStore.setActiveSession(activeSessionId.value, targetThreadId, targetPlanId)
       }
     }
   } catch (error) {

@@ -18,3 +18,35 @@ export function forceSaveAPI(key) {
         }
     })
 }
+
+export function getKnowledgeFileListAPI(plan_id) {
+    return request({
+        url: 'file/knowledgeFile',
+        method: 'GET',
+        params: {
+            plan_id: plan_id
+        }
+    })
+}
+
+export function uploadKnowledgeFileAPI(plan_id, file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    
+    return request({
+        url: 'file/knowledgeFile/upload',
+        method: 'POST',
+        params: { plan_id: plan_id },
+        data: formData,
+        headers: {
+            'Content-Type': 'multipart/form-data'
+        }
+    })
+}
+
+export function deleteKnowledgeFileAPI(file_id) {
+    return request({
+        url: `file/${file_id}`,
+        method: 'DELETE'
+    })
+}
