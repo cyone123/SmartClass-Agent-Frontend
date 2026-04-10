@@ -44,6 +44,24 @@ export function uploadKnowledgeFileAPI(plan_id, file) {
     })
 }
 
+export function uploadAttachmentFileAPI(plan_id, thread_id, file) {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    return request({
+        url: 'file/attachment/upload',
+        method: 'POST',
+        params: {
+            plan_id: plan_id,
+            thread_id: thread_id
+        },
+        data: formData,
+        headers: {
+            'Content-Type': 'multipart/form-data'
+        }
+    })
+}
+
 export function deleteKnowledgeFileAPI(file_id) {
     return request({
         url: `file/${file_id}`,
