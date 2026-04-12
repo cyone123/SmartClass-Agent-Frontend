@@ -7,7 +7,7 @@
       </div>
     </div>
 
-    <div class="chat-body" ref="chatBodyRef">
+    <div class="chat-body" ref="chatBodyRef" @scroll="handleChatScroll">
       <div v-if="messages.length === 0" class="placeholder">
         <div class="empty-state">
           <div class="empty-icon-wrapper">
@@ -47,7 +47,14 @@
                   <span></span>
                 </div>
                 <template v-else>
-                  {{ msg.content }}
+                  <AiMarkdownMessage
+                    v-if="msg.role === 'ai'"
+                    :content="normalizeMessageContent(msg.content)"
+                    @rendered="handleAiMessageRendered"
+                  />
+                  <div v-else class="message-text-content">
+                    {{ normalizeMessageContent(msg.content) }}
+                  </div>
                 </template>
               </div>
             </template>
@@ -202,6 +209,8 @@ import { ElMessage } from 'element-plus'
 import { uploadAttachmentFileAPI } from '@/api/file'
 import { getMessageHistry } from '@/api/session'
 import { useSessionStore } from '@/store/session'
+import AiMarkdownMessage from './AiMarkdownMessage.vue'
+import { normalizeMarkdownSource as normalizeMessageContent } from './markdown'
 
 const sessionStore = useSessionStore()
 const { activeSessionId, activeThreadId: threadId, activePlanId } = storeToRefs(sessionStore)
@@ -214,6 +223,9 @@ const inputText = ref('')
 const pendingAttachments = ref([])
 const isStreaming = ref(false)
 const currentAbortController = ref(null)
+const isPinnedToBottom = ref(true)
+
+const AUTO_SCROLL_THRESHOLD = 48
 
 const hasUploadingAttachments = computed(() =>
   pendingAttachments.value.some((file) => file.status === 'uploading')
@@ -225,6 +237,22 @@ const canSend = computed(() => {
 
 const createAttachmentUid = () => {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`
+}
+
+const isNearBottom = (element) => {
+  if (!element) {
+    return true
+  }
+
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= AUTO_SCROLL_THRESHOLD
+}
+
+const handleChatScroll = () => {
+  isPinnedToBottom.value = isNearBottom(chatBodyRef.value)
+}
+
+const handleAiMessageRendered = async () => {
+  await scrollToBottom()
 }
 
 const createPendingAttachment = (file) => {
@@ -346,7 +374,7 @@ const appendErrorMessage = async (content = '对话请求失败，请稍后重�
   messages.value.push({
     role: 'ai',
     type: 'text',
-    content
+    content: normalizeMessageContent(content)
   })
   await scrollToBottom()
 }
@@ -471,8 +499,7 @@ const appendTokenToMessage = async (streamState, runId, text) => {
 
   const aiMessage = ensureAiTextMessage(streamState, runId)
   aiMessage.isPending = false
-  aiMessage.content += text
-  await scrollToBottom()
+  aiMessage.content = `${normalizeMessageContent(aiMessage.content)}${text}`
 }
 
 const markProgressFailed = async (streamState, stepKey, detail) => {
@@ -651,22 +678,40 @@ const sendMessage = async () => {
   messages.value.push({
     role: 'teacher',
     type: 'text',
-    content,
+    content: normalizeMessageContent(content),
     attachments: successfulAttachments.length > 0 ? successfulAttachments : undefined
   })
 
   inputText.value = ''
   pendingAttachments.value = []
 
-  await scrollToBottom()
+  await scrollToBottom(true)
   await requestStreamReply(content, attachmentIds)
 }
 
-const scrollToBottom = async () => {
+const scrollToBottom = async (force = false) => {
   await nextTick()
-  if (chatBodyRef.value) {
-    chatBodyRef.value.scrollTop = chatBodyRef.value.scrollHeight
+  if (!chatBodyRef.value) {
+    return
   }
+
+  if (!force && !isPinnedToBottom.value) {
+    return
+  }
+
+  chatBodyRef.value.scrollTop = chatBodyRef.value.scrollHeight
+  isPinnedToBottom.value = true
+}
+
+const normalizeMessageList = (items = []) => {
+  if (!Array.isArray(items)) {
+    return []
+  }
+
+  return items.map((message) => ({
+    ...message,
+    content: normalizeMessageContent(message?.content)
+  }))
 }
 
 const loadHistory = async () => {
@@ -686,11 +731,11 @@ const loadHistory = async () => {
   try {
     const res = await getMessageHistry(targetId)
     if (res.data && res.data.messages) {
-      messages.value = res.data.messages
+      messages.value = normalizeMessageList(res.data.messages)
     } else {
       messages.value = []
     }
-    await scrollToBottom()
+    await scrollToBottom(true)
   } catch (error) {
     console.error('获取历史消息失败', error)
     messages.value = []
@@ -879,7 +924,11 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   color: var(--text-main);
   word-wrap: break-word;
+}
+
+.message-text-content {
   white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .message-bubble.is-pending {
