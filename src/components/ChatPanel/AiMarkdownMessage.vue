@@ -160,18 +160,24 @@ onBeforeUnmount(() => {
 }
 
 .ai-markdown-message :deep(pre) {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 12px 14px;
   border-radius: 10px;
   background: #0f172a;
   color: #e2e8f0;
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 
 .ai-markdown-message :deep(pre code) {
   display: block;
-  white-space: pre;
-  word-break: normal;
-  overflow-wrap: normal;
+  max-width: 100%;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   font-size: 0.9em;
   line-height: 1.6;
 }

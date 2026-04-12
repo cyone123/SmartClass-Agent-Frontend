@@ -110,6 +110,25 @@
     </div>
 
     <div class="chat-footer">
+      <transition name="suggestion-fade">
+        <div v-if="showSuggestions" class="suggestion-layer">
+          <div class="suggestion-card">
+            <div class="suggestion-title">继续追问</div>
+            <div class="suggestion-list">
+              <button
+                v-for="suggestion in activeSuggestions"
+                :key="suggestion"
+                type="button"
+                class="suggestion-chip"
+                @click="applySuggestion(suggestion)"
+              >
+                {{ suggestion }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
       <div class="input-container" :class="{ 'has-files': pendingAttachments.length > 0 }">
         <div class="toolbar">
           <button class="tool-btn" title="添加资料" @click="triggerAttachmentUpload">
@@ -162,6 +181,7 @@
         </div>
 
         <textarea
+          ref="inputTextareaRef"
           v-model="inputText"
           class="chat-input"
           rows="3"
@@ -217,6 +237,7 @@ const { activeSessionId, activeThreadId: threadId, activePlanId } = storeToRefs(
 
 const chatBodyRef = ref(null)
 const attachmentInputRef = ref(null)
+const inputTextareaRef = ref(null)
 
 const messages = ref([])
 const inputText = ref('')
@@ -224,8 +245,14 @@ const pendingAttachments = ref([])
 const isStreaming = ref(false)
 const currentAbortController = ref(null)
 const isPinnedToBottom = ref(true)
+const activeSuggestions = ref([])
+const activeSuggestionRunId = ref('')
+const skipSuggestionsForCurrentStream = ref(false)
 
 const AUTO_SCROLL_THRESHOLD = 48
+const showSuggestions = computed(() => {
+  return activeSuggestions.value.length > 0 && !!activeSuggestionRunId.value
+})
 
 const hasUploadingAttachments = computed(() =>
   pendingAttachments.value.some((file) => file.status === 'uploading')
@@ -279,6 +306,48 @@ const createStreamState = (sessionId) => {
 
 const isActiveStreamState = (streamState) => {
   return !!streamState && streamState.sessionId === activeSessionId.value
+}
+
+const clearSuggestions = () => {
+  activeSuggestions.value = []
+  activeSuggestionRunId.value = ''
+}
+
+const normalizeSuggestions = (items = []) => {
+  if (!Array.isArray(items)) {
+    return []
+  }
+
+  const normalized = []
+  const seen = new Set()
+
+  items.forEach((item) => {
+    const text = normalizeMessageContent(item).trim()
+    if (!text) {
+      return
+    }
+
+    const dedupeKey = text.toLocaleLowerCase()
+    if (seen.has(dedupeKey)) {
+      return
+    }
+
+    seen.add(dedupeKey)
+    normalized.push(text)
+  })
+
+  return normalized.slice(0, 3)
+}
+
+const focusInput = async () => {
+  await nextTick()
+  inputTextareaRef.value?.focus()
+}
+
+const applySuggestion = async (suggestion) => {
+  inputText.value = suggestion
+  clearSuggestions()
+  await focusInput()
 }
 
 const updatePendingAttachment = (uid, patch) => {
@@ -529,6 +598,29 @@ const markProgressFailed = async (streamState, stepKey, detail) => {
   await scrollToBottom()
 }
 
+const updateSuggestions = (streamState, payload) => {
+  if (!isActiveStreamState(streamState) || !payload?.run_id) {
+    return
+  }
+  if (streamState.runId && payload.run_id !== streamState.runId) {
+    return
+  }
+  if (!streamState.hasReceivedToken || streamState.hasReceivedError) {
+    return
+  }
+  if (skipSuggestionsForCurrentStream.value || inputText.value.trim().length > 0) {
+    return
+  }
+
+  const suggestions = normalizeSuggestions(payload.suggestions)
+  if (!suggestions.length) {
+    return
+  }
+
+  activeSuggestionRunId.value = payload.run_id
+  activeSuggestions.value = suggestions
+}
+
 const handleParsedEvent = async (event, data, streamState) => {
   if (!isActiveStreamState(streamState) && event !== 'done') {
     return false
@@ -561,6 +653,11 @@ const handleParsedEvent = async (event, data, streamState) => {
       streamState.hasReceivedToken = true
       await appendTokenToMessage(streamState, payload?.run_id || streamState.runId, text)
     }
+    return false
+  }
+  if (event === 'suggestions') {
+    const payload = parseJsonPayload(data)
+    updateSuggestions(streamState, payload)
     return false
   }
 /* 
@@ -638,6 +735,7 @@ const handleStreamResponse = async (response, streamState) => {
 const requestStreamReply = async (content, attachmentIds = []) => {
   isStreaming.value = true
   currentAbortController.value = new AbortController()
+  skipSuggestionsForCurrentStream.value = false
   const streamState = createStreamState(activeSessionId.value)
 
   try {
@@ -674,6 +772,8 @@ const sendMessage = async () => {
   const content = inputText.value.trim()
   const successfulAttachments = getSuccessfulAttachments()
   const attachmentIds = successfulAttachments.map((file) => file.id)
+
+  clearSuggestions()
 
   messages.value.push({
     role: 'teacher',
@@ -716,6 +816,8 @@ const normalizeMessageList = (items = []) => {
 
 const loadHistory = async () => {
   pendingAttachments.value = []
+  clearSuggestions()
+  skipSuggestionsForCurrentStream.value = false
 
   if (!activeSessionId.value) {
     messages.value = []
@@ -743,9 +845,23 @@ const loadHistory = async () => {
 }
 
 watch(
+  () => inputText.value,
+  (value) => {
+    if (value.trim().length > 0) {
+      clearSuggestions()
+      if (isStreaming.value) {
+        skipSuggestionsForCurrentStream.value = true
+      }
+    }
+  }
+)
+
+watch(
   () => activeSessionId.value,
   () => {
     currentAbortController.value?.abort()
+    clearSuggestions()
+    skipSuggestionsForCurrentStream.value = false
     loadHistory()
   },
   { immediate: true }
@@ -753,6 +869,7 @@ watch(
 
 onBeforeUnmount(() => {
   currentAbortController.value?.abort()
+  clearSuggestions()
 })
 </script>
 
@@ -761,6 +878,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
+  position: relative;
 }
 
 .chat-header {
@@ -1082,10 +1200,76 @@ onBeforeUnmount(() => {
 }
 
 .chat-footer {
+  position: relative;
   padding: 20px 24px;
   background-color: var(--bg-main);
   box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.02);
   z-index: 10;
+}
+
+.suggestion-layer {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: calc(100% + 14px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.suggestion-card {
+  pointer-events: auto;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(720px, calc(100vw - 80px));
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.558);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.1);
+  backdrop-filter: blur(8px);
+}
+
+.suggestion-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.suggestion-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.suggestion-chip {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: #ffffff;
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.suggestion-chip:hover {
+  transform: translateY(-1px);
+  color: var(--text-main);
+  border-color: rgba(79, 70, 229, 0.22);
+  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.08);
+}
+
+.suggestion-chip:active {
+  transform: translateY(0);
 }
 
 .input-container {
@@ -1259,6 +1443,19 @@ onBeforeUnmount(() => {
 
 .chat-input::placeholder {
   color: var(--text-disabled);
+}
+
+.suggestion-fade-enter-active,
+.suggestion-fade-leave-active {
+  transition:
+    opacity 0.24s ease,
+    transform 0.24s ease;
+}
+
+.suggestion-fade-enter-from,
+.suggestion-fade-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
 }
 
 .send-action {
