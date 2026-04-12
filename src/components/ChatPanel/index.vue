@@ -14,14 +14,14 @@
             <MessageSquarePlus class="empty-icon" />
           </div>
           <p>当前暂无对话，请在下方输入您的需求</p>
-          <span class="empty-hint">您可以要求我生成课件框架、编写教案，或提供教学参考资料</span>
+          <span class="empty-hint">您可以让我生成教学设计、教案草稿，或结合附件进行分析。</span>
         </div>
       </div>
 
       <div v-else class="message-list">
         <div
           v-for="(msg, index) in messages"
-          :key="index"
+          :key="msg.runId ? `${msg.runId}_${index}` : index"
           class="message-wrapper"
           :class="msg.role === 'teacher' ? 'message-right' : 'message-left'"
         >
@@ -29,102 +29,58 @@
             <User v-if="msg.role === 'teacher'" class="avatar-icon" />
             <Bot v-else class="avatar-icon" />
           </div>
+
           <div class="message-content">
             <template v-if="!msg.type || msg.type === 'text'">
-              <div v-if="msg.content" class="message-bubble">
-                {{ msg.content }}
+              <div
+                v-if="msg.content || msg.isPending"
+                class="message-bubble"
+                :class="{ 'is-pending': msg.isPending }"
+              >
+                <div
+                  v-if="msg.isPending"
+                  class="message-waiting-dots waiting-dots"
+                  aria-label="AI 正在组织回复"
+                >
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+                <template v-else>
+                  {{ msg.content }}
+                </template>
               </div>
             </template>
 
-            <template v-else-if="msg.type === 'structure-card'">
-              <div class="structure-card" :class="{ 'is-confirmed': msg.confirmed }">
-                <div class="card-header">
-                  <div class="header-title">
-                    <Sparkles class="header-icon" />
-                    <h4>教学要素提取</h4>
-                  </div>
-                  <div v-if="msg.confirmed" class="status-badge success">
-                    <CheckCircle class="status-icon" />
-                    已确认
-                  </div>
-                  <div v-else class="status-badge pending">
-                    <Clock class="status-icon" />
-                    待确认
-                  </div>
-                </div>
-                <div class="card-body">
-                  <div class="info-grid">
-                    <div class="info-item">
-                      <span class="info-label">课程主题</span>
-                      <span class="info-val">{{ msg.data.topic }}</span>
-                    </div>
-                    <div class="info-item">
-                      <span class="info-label">学生对象</span>
-                      <span class="info-val">{{ msg.data.audience }}</span>
-                    </div>
-                    <div class="info-item full-width">
-                      <span class="info-label">教学目标</span>
-                      <span class="info-val">{{ msg.data.goal }}</span>
-                    </div>
-                    <div class="info-item full-width">
-                      <span class="info-label">知识点清单</span>
-                      <ul class="info-list">
-                        <li v-for="(point, pIdx) in msg.data.points" :key="pIdx">{{ point }}</li>
-                      </ul>
-                    </div>
-                    <div class="info-item full-width">
-                      <span class="info-label">重难点分析</span>
-                      <div class="info-val">
-                        <div><strong>重点:</strong> {{ msg.data.focus }}</div>
-                        <div style="margin-top: 4px"><strong>难点:</strong> {{ msg.data.difficulty }}</div>
-                      </div>
-                    </div>
-                    <div class="info-item full-width">
-                      <span class="info-label">大致逻辑顺序</span>
-                      <span class="info-val">{{ msg.data.sequence }}</span>
-                    </div>
-                  </div>
+            <template v-else-if="msg.type === 'progress-status'">
+              <div class="progress-status-card" :class="{ 'is-complete': msg.isComplete }">
+                <div class="progress-status-header">
+                  <span class="progress-status-title">
+                    {{ msg.isComplete ? 'Agent 运行完成' : 'Agent 正在处理中' }}
+                  </span>
                 </div>
 
-                <div v-if="!msg.confirmed" class="card-action">
-                  <button class="confirm-btn" @click="confirmStructure(msg)">
-                    <Check class="btn-icon" />
-                    确认以上信息并开始生成
-                  </button>
-                </div>
-              </div>
-            </template>
+                <div class="progress-step-list">
+                  <div
+                    v-for="step in msg.steps"
+                    :key="step.step_key"
+                    class="progress-step-item"
+                    :class="`is-${step.status}`"
+                  >
+                    <div class="progress-step-indicator">
+                      <div v-if="step.status === 'running'" class="waiting-dots" aria-hidden="true">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                      </div>
+                      <Check v-else-if="step.status === 'success'" class="step-icon success" />
+                      <AlertCircle v-else-if="step.status === 'failed'" class="step-icon failed" />
+                      <span v-else class="step-dot"></span>
+                    </div>
 
-            <template v-else-if="msg.type === 'progress-card'">
-              <div class="progress-card">
-                <div class="card-header">
-                  <div class="header-title">
-                    <CheckCircle v-if="msg.isComplete" class="header-icon success-icon" />
-                    <Wand2 v-else class="header-icon" />
-                    <h4>{{ msg.isComplete ? '教案与 PPT 生成完成' : 'AI 智能生成中...' }}</h4>
-                  </div>
-                </div>
-                <div class="card-body">
-                  <div class="timeline">
-                    <div
-                      v-for="(step, sIdx) in msg.steps"
-                      :key="sIdx"
-                      class="timeline-item"
-                      :class="{
-                        'is-completed': sIdx < msg.currentStepIndex,
-                        'is-active': sIdx === msg.currentStepIndex,
-                        'is-pending': sIdx > msg.currentStepIndex
-                      }"
-                    >
-                      <div v-if="sIdx < msg.steps.length - 1" class="timeline-tail"></div>
-                      <div class="timeline-node">
-                        <Check v-if="sIdx < msg.currentStepIndex" class="node-icon check" />
-                        <Loader2 v-else-if="sIdx === msg.currentStepIndex" class="node-icon spin" />
-                        <div v-else class="node-dot"></div>
-                      </div>
-                      <div class="timeline-content">
-                        {{ step.name }}
-                      </div>
+                    <div class="progress-step-body">
+                      <div class="progress-step-label">{{ step.label }}</div>
+                      <div v-if="step.detail" class="progress-step-detail">{{ step.detail }}</div>
                     </div>
                   </div>
                 </div>
@@ -202,7 +158,7 @@
           v-model="inputText"
           class="chat-input"
           rows="3"
-          placeholder="例如：我要给高一学生上一节函数的引入课..."
+          placeholder="例如：请帮我为高一数学《函数》设计一节导入课。"
           @keydown.enter.prevent="sendMessage"
         ></textarea>
 
@@ -219,7 +175,7 @@
           </button>
         </div>
       </div>
-      <div class="footer-hint">AI 生成的内容仅供参考，请以实际教学为准</div>
+      <div class="footer-hint">AI 生成内容仅供参考，请结合实际教学场景进行调整</div>
     </div>
   </div>
 </template>
@@ -227,21 +183,18 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
-  MessageSquarePlus,
-  Paperclip,
-  LayoutTemplate,
-  Send,
-  MoreHorizontal,
-  User,
+  AlertCircle,
   Bot,
-  FileText,
-  Loader2,
-  X,
-  Sparkles,
-  CheckCircle,
-  Clock,
   Check,
-  Wand2
+  FileText,
+  LayoutTemplate,
+  Loader2,
+  MessageSquarePlus,
+  MoreHorizontal,
+  Paperclip,
+  Send,
+  User,
+  X
 } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import { ElMessage } from 'element-plus'
@@ -283,6 +236,21 @@ const createPendingAttachment = (file) => {
     status: 'uploading',
     errorMessage: ''
   }
+}
+
+const createStreamState = (sessionId) => {
+  return {
+    sessionId,
+    runId: '',
+    progressMessageIndex: -1,
+    aiMessageIndex: -1,
+    hasReceivedToken: false,
+    hasReceivedError: false
+  }
+}
+
+const isActiveStreamState = (streamState) => {
+  return !!streamState && streamState.sessionId === activeSessionId.value
 }
 
 const updatePendingAttachment = (uid, patch) => {
@@ -374,12 +342,13 @@ const removeAttachment = (uid) => {
   }
 }
 
-const appendErrorMessage = (content = '对话请求失败，请稍后重试。') => {
+const appendErrorMessage = async (content = '对话请求失败，请稍后重试。') => {
   messages.value.push({
     role: 'ai',
     type: 'text',
     content
   })
+  await scrollToBottom()
 }
 
 const normalizeSseText = (value = '') => {
@@ -421,27 +390,185 @@ const parseSseEvent = (rawEvent) => {
   }
 }
 
-const handleParsedEvent = async (event, data, aiMessageIndex) => {
-  if (event === 'metadata') {
-    const payload = JSON.parse(data)
-    if (payload.thread_id) {
-      threadId.value = payload.thread_id
-    }
-    return false
+const parseJsonPayload = (value) => {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
   }
-
-  if (event === 'message') {
-    if (aiMessageIndex > -1) {
-      messages.value[aiMessageIndex].content += data
-      await scrollToBottom()
-    }
-    return false
-  }
-
-  return event === 'done' || data === '[DONE]'
 }
 
-const handleStreamResponse = async (response) => {
+const ensureProgressMessage = (streamState, runId) => {
+  const current = messages.value[streamState.progressMessageIndex]
+  if (current?.type === 'progress-status' && current.runId === runId) {
+    return current
+  }
+
+  messages.value.push({
+    role: 'ai',
+    type: 'progress-status',
+    runId,
+    steps: [],
+    isComplete: false
+  })
+  streamState.progressMessageIndex = messages.value.length - 1
+  return messages.value[streamState.progressMessageIndex]
+}
+
+const ensureAiTextMessage = (streamState, runId = '') => {
+  const current = messages.value[streamState.aiMessageIndex]
+  if (current?.type === 'text' && current.role === 'ai' && current.runId === runId) {
+    return current
+  }
+
+  messages.value.push({
+    role: 'ai',
+    type: 'text',
+    runId,
+    content: '',
+    isPending: false
+  })
+  streamState.aiMessageIndex = messages.value.length - 1
+  return messages.value[streamState.aiMessageIndex]
+}
+
+const shouldShowPendingAiMessage = (steps = []) => {
+  return steps.length > 0 && steps.every((step) => step.status === 'success')
+}
+
+const updateProgressMessage = async (streamState, payload) => {
+  if (!isActiveStreamState(streamState) || !payload?.run_id) {
+    return
+  }
+
+  const message = ensureProgressMessage(streamState, payload.run_id)
+  message.steps = Array.isArray(payload.steps) ? payload.steps : []
+  message.isComplete =
+    message.steps.length > 0 &&
+    message.steps.every((step) => ['success', 'failed'].includes(step.status))
+
+  if (!streamState.hasReceivedToken && !streamState.hasReceivedError) {
+    const shouldPending = shouldShowPendingAiMessage(message.steps)
+    const currentAiMessage = messages.value[streamState.aiMessageIndex]
+    const hasCurrentAiMessage =
+      currentAiMessage?.type === 'text' &&
+      currentAiMessage.role === 'ai' &&
+      currentAiMessage.runId === payload.run_id
+
+    if (shouldPending || hasCurrentAiMessage) {
+      const aiMessage = ensureAiTextMessage(streamState, payload.run_id)
+      aiMessage.isPending = shouldPending
+    }
+  }
+
+  await scrollToBottom()
+}
+
+const appendTokenToMessage = async (streamState, runId, text) => {
+  if (!text || !isActiveStreamState(streamState)) {
+    return
+  }
+
+  const aiMessage = ensureAiTextMessage(streamState, runId)
+  aiMessage.isPending = false
+  aiMessage.content += text
+  await scrollToBottom()
+}
+
+const markProgressFailed = async (streamState, stepKey, detail) => {
+  const message = messages.value[streamState.progressMessageIndex]
+  if (!message || message.type !== 'progress-status') {
+    return
+  }
+
+  let targetStep = null
+  if (stepKey) {
+    targetStep = message.steps.find((step) => step.step_key === stepKey)
+  }
+  if (!targetStep) {
+    targetStep = [...message.steps].reverse().find((step) => step.status === 'running')
+  }
+
+  if (targetStep) {
+    targetStep.status = 'failed'
+    if (detail) {
+      targetStep.detail = detail
+    }
+  }
+  message.isComplete =
+    message.steps.length > 0 &&
+    message.steps.every((step) => ['success', 'failed'].includes(step.status))
+
+  await scrollToBottom()
+}
+
+const handleParsedEvent = async (event, data, streamState) => {
+  if (!isActiveStreamState(streamState) && event !== 'done') {
+    return false
+  }
+
+  if (event === 'metadata') {
+    const payload = parseJsonPayload(data)
+    if (payload?.thread_id) {
+      threadId.value = payload.thread_id
+    }
+    if (payload?.run_id) {
+      streamState.runId = payload.run_id
+    }
+    return false
+  }
+
+  if (event === 'progress') {
+    const payload = parseJsonPayload(data)
+    if (payload?.run_id) {
+      streamState.runId = payload.run_id
+    }
+    await updateProgressMessage(streamState, payload)
+    return false
+  }
+
+  if (event === 'token') {
+    const payload = parseJsonPayload(data)
+    const text = payload?.text || ''
+    if (text) {
+      streamState.hasReceivedToken = true
+      await appendTokenToMessage(streamState, payload?.run_id || streamState.runId, text)
+    }
+    return false
+  }
+/* 
+  if (event === 'message') {
+    if (streamState.hasReceivedToken) {
+      return false
+    }
+    if (data) {
+      await appendTokenToMessage(streamState, streamState.runId, data)
+    }
+    return false
+  }
+*/
+  if (event === 'error') {
+    const payload = parseJsonPayload(data)
+    streamState.hasReceivedError = true
+    await markProgressFailed(streamState, payload?.step_key, payload?.message)
+    await appendErrorMessage(payload?.message || '对话请求失败，请稍后重试。')
+    return false
+  }
+
+  if (event === 'done' || data === '[DONE]') {
+    const progressMessage = messages.value[streamState.progressMessageIndex]
+    if (progressMessage?.type === 'progress-status') {
+      progressMessage.isComplete =
+        progressMessage.steps.length > 0 &&
+        progressMessage.steps.every((step) => ['success', 'failed'].includes(step.status))
+    }
+    return true
+  }
+
+  return false
+}
+
+const handleStreamResponse = async (response, streamState) => {
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`)
   }
@@ -454,9 +581,6 @@ const handleStreamResponse = async (response) => {
   const decoder = new TextDecoder('utf-8')
   let buffer = ''
 
-  const aiMessageIndex = messages.value.length - 1
-  await scrollToBottom()
-
   while (true) {
     const { value, done } = await reader.read()
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
@@ -468,7 +592,7 @@ const handleStreamResponse = async (response) => {
       if (!block.trim()) continue
 
       const { event, data } = parseSseEvent(block)
-      const shouldStop = await handleParsedEvent(event, data, aiMessageIndex)
+      const shouldStop = await handleParsedEvent(event, data, streamState)
       if (shouldStop) {
         return
       }
@@ -477,7 +601,7 @@ const handleStreamResponse = async (response) => {
     if (done) {
       if (buffer.trim()) {
         const { event, data } = parseSseEvent(buffer)
-        await handleParsedEvent(event, data, aiMessageIndex)
+        await handleParsedEvent(event, data, streamState)
       }
       return
     }
@@ -487,6 +611,7 @@ const handleStreamResponse = async (response) => {
 const requestStreamReply = async (content, attachmentIds = []) => {
   isStreaming.value = true
   currentAbortController.value = new AbortController()
+  const streamState = createStreamState(activeSessionId.value)
 
   try {
     const response = await fetch('/api/chat/stream', {
@@ -503,11 +628,11 @@ const requestStreamReply = async (content, attachmentIds = []) => {
       signal: currentAbortController.value.signal
     })
 
-    await handleStreamResponse(response)
+    await handleStreamResponse(response, streamState)
   } catch (error) {
-    if (error?.name !== 'AbortError') {
+    if (error?.name !== 'AbortError' && !streamState.hasReceivedError && isActiveStreamState(streamState)) {
       console.error('Streaming chat failed:', error)
-      appendErrorMessage()
+      await appendErrorMessage()
     }
   } finally {
     isStreaming.value = false
@@ -516,7 +641,7 @@ const requestStreamReply = async (content, attachmentIds = []) => {
   }
 }
 
-const sendMessage = () => {
+const sendMessage = async () => {
   if (!canSend.value) return
 
   const content = inputText.value.trim()
@@ -530,82 +655,11 @@ const sendMessage = () => {
     attachments: successfulAttachments.length > 0 ? successfulAttachments : undefined
   })
 
-  const isTriggerKeyword = content.includes('开始生成')
-
   inputText.value = ''
   pendingAttachments.value = []
 
-  scrollToBottom()
-
-  setTimeout(async () => {
-    if (isTriggerKeyword) {
-      messages.value.push({
-        role: 'ai',
-        type: 'structure-card',
-        confirmed: false,
-        data: {
-          topic: '高一数学 - 函数的引入与基本概念',
-          audience: '高一新生（具有初中代数基础）',
-          goal: '理解函数的映射本质，掌握定义域和值域基础知识。',
-          points: ['1. 常量与映射的区别', '2. 定义域求解准则', '3. 解析式书写'],
-          focus: '从初中变量观念过渡到高中映射观念。',
-          difficulty: '抽象函数的理解与定义域求解。',
-          sequence: '生活情境引入 -> 知识回顾对比 -> 引出新定义 -> 重难点解析 -> 练习'
-        }
-      })
-    } else {
-      messages.value.push({
-        role: 'ai',
-        type: 'text',
-        content: ''
-      })
-      await requestStreamReply(content, attachmentIds)
-    }
-    scrollToBottom()
-  }, 800)
-}
-
-const confirmStructure = (msg) => {
-  msg.confirmed = true
-
-  setTimeout(() => {
-    const progressMsg = {
-      role: 'ai',
-      type: 'progress-card',
-      currentStepIndex: 0,
-      isComplete: false,
-      steps: [
-        { name: '整理生成计划' },
-        { name: '检索本地知识库中...' },
-        { name: '生成教案中...' },
-        { name: '生成配套 PPT 和互动小游戏' }
-      ]
-    }
-    messages.value.push(progressMsg)
-    scrollToBottom()
-
-    const simulateSSE = async () => {
-      const delays = [1200, 1500, 2500, 1500]
-      const reactiveMsg = messages.value[messages.value.length - 1]
-
-      for (let i = 0; i < delays.length; i += 1) {
-        await new Promise((resolve) => setTimeout(resolve, delays[i]))
-        reactiveMsg.currentStepIndex = i + 1
-      }
-      reactiveMsg.isComplete = true
-
-      setTimeout(() => {
-        messages.value.push({
-          role: 'ai',
-          type: 'text',
-          content:
-            '这是一份根据您的需求生成的《高一数学 - 函数的引入》教案与配套 PPT，右侧资料区已同步更新。您看看是否需要对某些环节进行调整？'
-        })
-        scrollToBottom()
-      }, 600)
-    }
-    simulateSSE()
-  }, 600)
+  await scrollToBottom()
+  await requestStreamReply(content, attachmentIds)
 }
 
 const scrollToBottom = async () => {
@@ -646,6 +700,7 @@ const loadHistory = async () => {
 watch(
   () => activeSessionId.value,
   () => {
+    currentAbortController.value?.abort()
     loadHistory()
   },
   { immediate: true }
@@ -794,7 +849,7 @@ onBeforeUnmount(() => {
 
 .avatar.teacher {
   background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
-  color: white;
+  color: #ffffff;
   margin-left: 12px;
 }
 
@@ -827,6 +882,13 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
 }
 
+.message-bubble.is-pending {
+  min-width: 54px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+}
+
 .message-left .message-bubble {
   background-color: #ffffff;
   border: 1px solid var(--border-color);
@@ -839,6 +901,128 @@ onBeforeUnmount(() => {
   color: #ffffff;
   border-top-right-radius: 2px;
   box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
+}
+
+.message-waiting-dots {
+  color: var(--text-disabled);
+}
+
+.progress-status-card {
+  width: 340px;
+  max-width: 100%;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.progress-status-card.is-complete {
+  background: #ffffff;
+}
+
+.progress-status-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.progress-status-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.progress-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.progress-step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--text-disabled);
+}
+
+.progress-step-item.is-success {
+  color: var(--text-secondary);
+}
+
+.progress-step-item.is-failed {
+  color: #dc2626;
+}
+
+.progress-step-indicator {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #cbd5e1;
+}
+
+.step-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.step-icon.success {
+  color: #10b981;
+}
+
+.step-icon.failed {
+  color: #ef4444;
+}
+
+.waiting-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.waiting-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: currentColor;
+  opacity: 0.35;
+  animation: waiting-dot-bounce 1.2s infinite ease-in-out;
+}
+
+.waiting-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.waiting-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.progress-step-body {
+  min-width: 0;
+}
+
+.progress-step-label {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.progress-step-detail {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: inherit;
+  opacity: 0.86;
 }
 
 .message-attachments {
@@ -973,12 +1157,6 @@ onBeforeUnmount(() => {
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
 .file-icon {
   width: 14px;
   height: 14px;
@@ -1042,7 +1220,7 @@ onBeforeUnmount(() => {
 
 .send-btn {
   background-color: var(--primary-color);
-  color: white;
+  color: #ffffff;
   border: none;
   border-radius: 8px;
   padding: 8px 16px;
@@ -1079,286 +1257,23 @@ onBeforeUnmount(() => {
   margin-top: 12px;
 }
 
-.structure-card {
-  background-color: #ffffff;
-  border: 1px solid var(--primary-color);
-  border-radius: 12px;
-  width: 480px;
-  max-width: 100%;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.1);
-  overflow: hidden;
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  position: relative;
-  margin-bottom: 8px;
+@keyframes spin {
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
-.structure-card.is-confirmed {
-  border-color: var(--border-color);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-}
+@keyframes waiting-dot-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.3;
+  }
 
-.card-header {
-  background-color: rgba(79, 70, 229, 0.05);
-  padding: 12px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid rgba(79, 70, 229, 0.1);
-  transition: all 0.4s ease;
-}
-
-.structure-card.is-confirmed .card-header {
-  background-color: #f8fafc;
-  border-bottom-color: var(--border-color);
-}
-
-.header-title {
-  display: flex;
-  align-items: center;
-}
-
-.header-icon {
-  width: 16px;
-  height: 16px;
-  color: var(--primary-hover);
-  margin-right: 8px;
-}
-
-.structure-card.is-confirmed .header-icon {
-  color: var(--text-secondary);
-}
-
-.card-header h4 {
-  margin: 0;
-  font-size: 14px;
-  color: #1e293b;
-  font-weight: 600;
-  transition: color 0.4s ease;
-}
-
-.structure-card.is-confirmed .card-header h4 {
-  color: var(--text-secondary);
-}
-
-.status-badge {
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  font-weight: 500;
-}
-
-.status-badge.pending {
-  color: #fbbf24;
-}
-
-.status-badge.success {
-  color: #10b981;
-}
-
-.status-icon {
-  width: 14px;
-  height: 14px;
-  margin-right: 4px;
-}
-
-.card-body {
-  padding: 16px;
-  transition: opacity 0.4s ease;
-}
-
-.structure-card.is-confirmed .card-body {
-  opacity: 0.8;
-}
-
-.info-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.info-item {
-  display: flex;
-  flex-direction: column;
-}
-
-.info-item.full-width {
-  grid-column: 1 / -1;
-}
-
-.info-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-  font-weight: 500;
-}
-
-.info-val {
-  font-size: 13px;
-  color: var(--text-main);
-  line-height: 1.5;
-}
-
-.info-list {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 13px;
-  color: var(--text-main);
-  line-height: 1.5;
-}
-
-.info-list li {
-  margin-bottom: 2px;
-}
-
-.card-action {
-  padding: 16px;
-  border-top: 1px solid var(--border-color);
-  display: flex;
-  justify-content: flex-end;
-  background-color: #fafafa;
-}
-
-.confirm-btn {
-  background-color: #10b981;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 8px 20px;
-  font-size: 13px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
-  transition: all 0.2s;
-}
-
-.confirm-btn:hover {
-  background-color: #059669;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(16, 185, 129, 0.3);
-}
-
-.progress-card {
-  background-color: #f8fafc;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  width: 320px;
-  max-width: 100%;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  overflow: hidden;
-  margin-bottom: 8px;
-}
-
-.progress-card .card-header {
-  background-color: transparent;
-  padding: 14px 16px 8px;
-  border-bottom: none;
-}
-
-.header-icon.success-icon {
-  color: #10b981;
-}
-
-.progress-card .card-body {
-  padding: 0 20px 20px 20px;
-  opacity: 1;
-}
-
-.timeline {
-  display: flex;
-  flex-direction: column;
-  margin-top: 8px;
-}
-
-.timeline-item {
-  position: relative;
-  padding-bottom: 20px;
-  display: flex;
-  align-items: flex-start;
-}
-
-.timeline-item:last-child {
-  padding-bottom: 0;
-}
-
-.timeline-tail {
-  position: absolute;
-  left: 11px;
-  top: 24px;
-  bottom: 0;
-  width: 2px;
-  background-color: #e2e8f0;
-  transition: background-color 0.4s ease;
-}
-
-.timeline-item.is-completed .timeline-tail {
-  background-color: var(--primary-color);
-}
-
-.timeline-node {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background-color: #ffffff;
-  border: 2px solid transparent;
-  z-index: 1;
-  margin-right: 12px;
-  transition: all 0.4s ease;
-}
-
-.timeline-item.is-pending .timeline-node {
-  border-color: #cbd5e1;
-}
-
-.timeline-item.is-active .timeline-node {
-  color: var(--primary-color);
-  background-color: #eef2ff;
-}
-
-.timeline-item.is-completed .timeline-node {
-  background-color: var(--primary-color);
-  color: white;
-}
-
-.node-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: #cbd5e1;
-}
-
-.node-icon.check {
-  width: 12px;
-  height: 12px;
-  stroke-width: 3;
-}
-
-.node-icon.spin {
-  animation: spin 1s linear infinite;
-}
-
-.timeline-content {
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 24px;
-  margin-top: -1px;
-  transition: color 0.4s ease;
-}
-
-.timeline-item.is-pending .timeline-content {
-  color: var(--text-disabled);
-}
-
-.timeline-item.is-active .timeline-content {
-  color: var(--primary-hover);
-  font-weight: 600;
-}
-
-.timeline-item.is-completed .timeline-content {
-  color: var(--text-main);
+  40% {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
 }
 </style>
