@@ -4,26 +4,45 @@
       <h3>资料与生成结果</h3>
       <button class="icon-btn"><Settings2 class="btn-icon" /></button>
     </div>
+
     <div class="context-body">
-      
       <div class="section">
         <div class="section-title">
-          <span>课件与教案</span>
-          <span class="badge">1</span>
+          <span>当前会话产物</span>
+          <span class="badge">{{ artifacts.length }}</span>
         </div>
+
         <div class="card-list">
-          <div class="card file-card" @click="openPreview('《函数的引入》初稿教案.docx')">
-            <div class="icon-wrapper pdf-icon">
-              <FileText class="file-icon" />
+          <div v-if="artifacts.length === 0" class="card empty-card">
+            <div class="empty-card-content">
+              <FileText class="empty-icon" />
+              <span>当前会话还没有产物</span>
             </div>
+          </div>
+
+          <div
+            v-for="artifact in artifacts"
+            :key="artifact.id"
+            class="card file-card"
+            @click="openArtifact(artifact)"
+          >
+            <div class="icon-wrapper" :class="getFileIconClass(artifact.extension)">
+              <component :is="getFileIcon(artifact.extension)" class="file-icon" />
+            </div>
+
             <div class="file-info">
-              <div class="file-name" title="《函数的引入》初稿教案.docx">《函数的引入》初稿教案.docx</div>
+              <div class="file-name" :title="artifact.title">{{ artifact.title }}</div>
               <div class="file-meta">
-                <span class="file-status success">新生成</span>
-                <span class="file-size">14KB</span>
+                <span class="file-status" :class="getArtifactStatusClass(artifact.status)">
+                  <Loader2 v-if="artifact.status === 'running'" class="spin-icon" />
+                  {{ getArtifactStatusText(artifact.status) }}
+                </span>
+                <span class="file-size">{{ formatBytes(artifact.size_bytes) }}</span>
+              </div>
+              <div v-if="artifact.error_message" class="file-error" :title="artifact.error_message">
+                {{ artifact.error_message }}
               </div>
             </div>
-            <button class="more-btn" @click.stop><MoreVertical class="more-icon" /></button>
           </div>
         </div>
       </div>
@@ -32,125 +51,221 @@
         <div class="section-title">
           <span>知识库文件</span>
           <span class="badge">{{ knowledgeFiles.length }}</span>
-          <div style="flex:1"></div>
+          <div class="section-spacer"></div>
           <button class="icon-btn upload-btn" @click="triggerUpload" :disabled="!activePlanId">
-             <Upload class="btn-icon-small" /> 上传
+            <Upload class="btn-icon-small" /> 上传
           </button>
-          <input type="file" ref="fileInput" style="display:none" @change="handleFileUpload" />
+          <input ref="fileInput" type="file" style="display: none" @change="handleFileUpload" />
         </div>
+
         <div class="card-list">
-          <!-- 动态渲染空状态 -->
           <div class="card empty-card" v-if="knowledgeFiles.length === 0">
             <div class="empty-card-content">
               <Database class="empty-icon" />
-              <span>该计划下暂无知识库文件</span>
+              <span>当前计划下暂无知识库文件</span>
             </div>
           </div>
-          
-          <div class="card file-card" v-for="file in knowledgeFiles" :key="file.id" @click="openKnowledgeFile(file)">
+
+          <div
+            v-for="file in knowledgeFiles"
+            :key="file.id"
+            class="card file-card"
+            @click="openKnowledgeFile(file)"
+          >
             <div class="icon-wrapper" :class="getFileIconClass(file.extension)">
               <component :is="getFileIcon(file.extension)" class="file-icon" />
             </div>
+
             <div class="file-info">
               <div class="file-name" :title="file.original_name">{{ file.original_name }}</div>
               <div class="file-meta">
-                <span class="file-status" :class="getStatusClass(file.status)">
+                <span class="file-status" :class="getKnowledgeStatusClass(file.status)">
                   <Loader2 v-if="['uploaded', 'indexing'].includes(file.status)" class="spin-icon" />
-                  {{ getStatusText(file.status) }}
+                  {{ getKnowledgeStatusText(file.status) }}
                 </span>
                 <span class="file-size">{{ formatBytes(file.size_bytes) }}</span>
               </div>
             </div>
-            <button class="more-btn delete-btn" @click.stop="deleteFile(file)" title="删除文件"><Trash2 class="more-icon" /></button>
+
+            <button class="more-btn delete-btn" @click.stop="deleteFile(file)" title="删除文件">
+              <Trash2 class="more-icon" />
+            </button>
           </div>
         </div>
       </div>
-
     </div>
-    
-    <!-- 弹层预览组件 -->
-    <FilePreviewPanel v-model:visible="isPreviewVisible" :fileId="previewFileId" />
+
+    <FilePreviewPanel
+      v-model:visible="isPreviewVisible"
+      :file-id="previewFileId"
+      :file-kind="previewFileKind"
+    />
+
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="isHtmlPreviewVisible" class="preview-overlay" @click.self="closeHtmlPreview">
+          <div class="preview-modal html-preview-modal">
+            <div class="modal-header">
+              <h3>{{ htmlPreviewTitle || "HTML 互动预览" }}</h3>
+              <button class="close-btn" @click="closeHtmlPreview">
+                <X class="more-icon" />
+              </button>
+            </div>
+            <div class="html-preview-body">
+              <iframe :src="htmlPreviewUrl" title="HTML artifact preview" class="html-preview-frame" />
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
-import { Settings2, Layers, FileText, Video, MoreVertical, Upload, Trash2, Database, Loader2 } from 'lucide-vue-next'
-import FilePreviewPanel from '../FilePreviewPanel/index.vue'
-import { useSessionStore } from '@/store/session'
-import { storeToRefs } from 'pinia'
-import { getKnowledgeFileListAPI, uploadKnowledgeFileAPI, deleteKnowledgeFileAPI } from '@/api/file'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { storeToRefs } from "pinia"
+import {
+  Database,
+  FileText,
+  Loader2,
+  Settings2,
+  Trash2,
+  Upload,
+  Video,
+  X,
+} from "lucide-vue-next"
+import { ElMessage, ElMessageBox } from "element-plus"
+
+import FilePreviewPanel from "../FilePreviewPanel/index.vue"
+import {
+  deleteKnowledgeFileAPI,
+  getHtmlArtifactPreviewUrl,
+  getKnowledgeFileListAPI,
+  uploadKnowledgeFileAPI,
+} from "@/api/file"
+import { useArtifactStore } from "@/store/artifact"
+import { useSessionStore } from "@/store/session"
 
 const sessionStore = useSessionStore()
-const { activePlanId } = storeToRefs(sessionStore)
+const artifactStore = useArtifactStore()
+const { activePlanId, activeThreadId } = storeToRefs(sessionStore)
 
 const isPreviewVisible = ref(false)
 const previewFileId = ref(null)
-
+const previewFileKind = ref("knowledge")
 const knowledgeFiles = ref([])
 const fileInput = ref(null)
+const isHtmlPreviewVisible = ref(false)
+const htmlPreviewUrl = ref("")
+const htmlPreviewTitle = ref("")
+
 let pollTimer = null
 
-const openPreview = (fileId) => {
+const artifacts = computed(() => artifactStore.getArtifactsByThread(activeThreadId.value))
+
+const openPreview = (fileKind, fileId) => {
+  previewFileKind.value = fileKind
   previewFileId.value = fileId
   isPreviewVisible.value = true
 }
 
 const openKnowledgeFile = (file) => {
-  if (['uploaded', 'indexing', 'failed'].includes(file.status)) {
-    ElMessage.warning('该文件当前状态由于仍在解析队列中，暂无法预览')
+  if (["uploaded", "indexing", "failed"].includes(file.status)) {
+    ElMessage.warning("该知识库文件当前不可预览")
     return
   }
-  openPreview(file.id)
+  openPreview("knowledge", file.id)
+}
+
+const openArtifact = (artifact) => {
+  if (artifact.status !== "ready") {
+    ElMessage.warning("当前产物尚未准备完成")
+    return
+  }
+
+  if (artifact.type === "html-game") {
+    htmlPreviewUrl.value = artifact.preview_url || getHtmlArtifactPreviewUrl(artifact.id)
+    htmlPreviewTitle.value = artifact.title
+    isHtmlPreviewVisible.value = true
+    return
+  }
+
+  openPreview("artifact", artifact.id)
+}
+
+const closeHtmlPreview = () => {
+  isHtmlPreviewVisible.value = false
+  htmlPreviewUrl.value = ""
+  htmlPreviewTitle.value = ""
 }
 
 const formatBytes = (bytes) => {
-  if (!bytes) return '0 B'
+  if (!bytes) return "0 B"
   const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
+  const sizes = ["B", "KB", "MB", "GB"]
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i]
 }
 
 const getFileIconClass = (ext) => {
-  ext = (ext || '').toLowerCase().replace('.', '')
-  if (['doc', 'docx'].includes(ext)) return 'word-icon'
-  if (['pdf'].includes(ext)) return 'pdf-icon'
-  if (['xls', 'xlsx'].includes(ext)) return 'excel-icon'
-  if (['ppt', 'pptx'].includes(ext)) return 'ppt-icon'
-  if (['mp4', 'avi', 'mov'].includes(ext)) return 'video-icon'
-  return 'default-icon'
+  const normalized = (ext || "").toLowerCase().replace(".", "")
+  if (["doc", "docx"].includes(normalized)) return "word-icon"
+  if (["pdf"].includes(normalized)) return "pdf-icon"
+  if (["xls", "xlsx"].includes(normalized)) return "excel-icon"
+  if (["ppt", "pptx"].includes(normalized)) return "ppt-icon"
+  if (["html", "htm"].includes(normalized)) return "html-icon"
+  if (["mp4", "avi", "mov"].includes(normalized)) return "video-icon"
+  return "default-icon"
 }
 
 const getFileIcon = (ext) => {
-  ext = (ext || '').toLowerCase().replace('.', '')
-  if (['mp4', 'avi', 'mov'].includes(ext)) return Video
+  const normalized = (ext || "").toLowerCase().replace(".", "")
+  if (["mp4", "avi", "mov"].includes(normalized)) return Video
   return FileText
 }
 
-const getStatusText = (status) => {
+const getKnowledgeStatusText = (status) => {
   const map = {
-    'uploaded': '待解析',
-    'indexing': '特征解析中',
-    'ready': '已解析',
-    'failed': '解析失败',
-    'deleted': '已删除'
+    uploaded: "待解析",
+    indexing: "解析中",
+    ready: "已就绪",
+    failed: "解析失败",
+    deleted: "已删除",
   }
   return map[status] || status
 }
 
-const getStatusClass = (status) => {
+const getKnowledgeStatusClass = (status) => {
   const map = {
-    'uploaded': 'pending',
-    'indexing': 'pending',
-    'ready': 'success',
-    'failed': 'error'
+    uploaded: "pending",
+    indexing: "pending",
+    ready: "success",
+    failed: "error",
   }
-  return map[status] || ''
+  return map[status] || ""
 }
 
-const fetchFiles = async () => {
+const getArtifactStatusText = (status) => {
+  const map = {
+    pending: "等待中",
+    running: "生成中",
+    ready: "已就绪",
+    failed: "生成失败",
+  }
+  return map[status] || status
+}
+
+const getArtifactStatusClass = (status) => {
+  const map = {
+    pending: "pending",
+    running: "pending",
+    ready: "success",
+    failed: "error",
+  }
+  return map[status] || ""
+}
+
+const fetchKnowledgeFiles = async () => {
   if (!activePlanId.value) {
     knowledgeFiles.value = []
     return
@@ -158,22 +273,32 @@ const fetchFiles = async () => {
   try {
     const res = await getKnowledgeFileListAPI(activePlanId.value)
     knowledgeFiles.value = res.data || []
-    
-    // 如果存在正在异步入库向量库的文件，触发轮询
-    const hasPending = knowledgeFiles.value.some(f => ['uploaded', 'indexing'].includes(f.status))
+
+    const hasPending = knowledgeFiles.value.some((file) => ["uploaded", "indexing"].includes(file.status))
     if (hasPending && !pollTimer) {
       startPolling()
     } else if (!hasPending && pollTimer) {
       stopPolling()
     }
-  } catch (e) {
-    console.error('获取文件列表失败', e)
+  } catch (error) {
+    console.error("获取知识库文件列表失败", error)
+  }
+}
+
+const fetchArtifacts = async () => {
+  if (!activeThreadId.value) {
+    return
+  }
+  try {
+    await artifactStore.fetchArtifacts(activeThreadId.value)
+  } catch (error) {
+    console.error("获取会话产物失败", error)
   }
 }
 
 const startPolling = () => {
   if (!pollTimer) {
-    pollTimer = setInterval(fetchFiles, 3000)
+    pollTimer = setInterval(fetchKnowledgeFiles, 3000)
   }
 }
 
@@ -186,12 +311,19 @@ const stopPolling = () => {
 
 watch(activePlanId, () => {
   stopPolling()
-  fetchFiles()
+  fetchKnowledgeFiles()
+})
+
+watch(activeThreadId, () => {
+  fetchArtifacts()
 })
 
 onMounted(() => {
   if (activePlanId.value) {
-    fetchFiles()
+    fetchKnowledgeFiles()
+  }
+  if (activeThreadId.value) {
+    fetchArtifacts()
   }
 })
 
@@ -200,43 +332,46 @@ onBeforeUnmount(() => {
 })
 
 const triggerUpload = () => {
-  if (fileInput.value) fileInput.value.click()
+  fileInput.value?.click()
 }
 
-const handleFileUpload = async (e) => {
-  const file = e.target.files[0]
+const handleFileUpload = async (event) => {
+  const file = event.target.files?.[0]
   if (!file) return
+
   if (!activePlanId.value) {
-    ElMessage.warning('请先选择或新建一个左侧的教学计划')
+    ElMessage.warning("请先选择一个教学计划")
     return
   }
-  
+
   try {
     const res = await uploadKnowledgeFileAPI(activePlanId.value, file)
-    if (res.code === 200 || res.data) {
-      ElMessage.success('上传成功，已加入异步解析队列')
-      fetchFiles()
+    if (res.code === 0 || res.data) {
+      ElMessage.success("上传成功，已加入异步解析队列")
+      fetchKnowledgeFiles()
     } else {
-      ElMessage.error(res.msg || '上传失败')
+      ElMessage.error(res.message || "上传失败")
     }
-  } catch(error) {
+  } catch (error) {
     console.error(error)
-    ElMessage.error('上传出错')
+    ElMessage.error("上传出错")
   } finally {
-    e.target.value = ''
+    event.target.value = ""
   }
 }
 
 const deleteFile = async (file) => {
   try {
-    await ElMessageBox.confirm(`确认删除知识文件 "${file.original_name}" 吗？此操作不可逆。`, '删除确认', { type: 'warning' })
+    await ElMessageBox.confirm(`确认删除知识库文件 "${file.original_name}" 吗？`, "删除确认", {
+      type: "warning",
+    })
     await deleteKnowledgeFileAPI(file.id)
-    ElMessage.success('删除成功')
-    fetchFiles()
-  } catch (e) {
-    if (e !== 'cancel') {
-      console.error(e)
-      ElMessage.error('删除失败')
+    ElMessage.success("删除成功")
+    fetchKnowledgeFiles()
+  } catch (error) {
+    if (error !== "cancel") {
+      console.error(error)
+      ElMessage.error("删除失败")
     }
   }
 }
@@ -278,10 +413,12 @@ const deleteFile = async (file) => {
   align-items: center;
   transition: background-color 0.2s;
 }
+
 .icon-btn:hover {
   background-color: #f1f5f9;
   color: var(--text-main);
 }
+
 .btn-icon {
   width: 18px;
   height: 18px;
@@ -308,6 +445,10 @@ const deleteFile = async (file) => {
   letter-spacing: 0.5px;
 }
 
+.section-spacer {
+  flex: 1;
+}
+
 .badge {
   background-color: #f1f5f9;
   color: var(--text-secondary);
@@ -329,14 +470,14 @@ const deleteFile = async (file) => {
   border-radius: 10px;
   padding: 16px;
   border: 1px solid var(--border-color);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
   transition: all 0.2s ease;
   cursor: pointer;
   position: relative;
 }
 
 .card:hover {
-  box-shadow: 0 8px 16px -4px rgba(0,0,0,0.05), 0 4px 6px -2px rgba(0,0,0,0.025);
+  box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
   border-color: #cbd5e1;
   transform: translateY(-2px);
 }
@@ -346,6 +487,7 @@ const deleteFile = async (file) => {
   background-color: #f8fafc;
   cursor: default;
 }
+
 .empty-card:hover {
   transform: none;
   box-shadow: none;
@@ -361,6 +503,7 @@ const deleteFile = async (file) => {
   padding: 16px 0;
   font-size: 13px;
 }
+
 .empty-icon {
   width: 24px;
   height: 24px;
@@ -385,13 +528,39 @@ const deleteFile = async (file) => {
   flex-shrink: 0;
 }
 
+.word-icon {
+  background-color: #eff6ff;
+  color: #3b82f6;
+}
+
+.excel-icon {
+  background-color: #ecfdf5;
+  color: #10b981;
+}
+
+.ppt-icon {
+  background-color: #fef2f2;
+  color: #ef4444;
+}
+
 .pdf-icon {
   background-color: #fee2e2;
   color: #ef4444;
 }
+
 .video-icon {
   background-color: #e0e7ff;
   color: #4f46e5;
+}
+
+.html-icon {
+  background-color: #fff7ed;
+  color: #f97316;
+}
+
+.default-icon {
+  background-color: #f1f5f9;
+  color: #64748b;
 }
 
 .file-icon {
@@ -423,14 +592,33 @@ const deleteFile = async (file) => {
   gap: 12px;
 }
 
+.file-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #ef4444;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .file-status {
+  display: flex;
+  align-items: center;
   font-weight: 500;
 }
+
 .file-status.success {
   color: #10b981;
 }
+
 .file-status.pending {
   color: #f59e0b;
+}
+
+.file-status.error {
+  color: #ef4444;
 }
 
 .file-size {
@@ -450,16 +638,17 @@ const deleteFile = async (file) => {
   transition: all 0.2s;
   display: flex;
 }
+
 .more-btn:hover {
   color: var(--text-main);
   background-color: #f1f5f9;
 }
+
 .more-icon {
   width: 16px;
   height: 16px;
 }
 
-/* 追加知识库功能动态样式 */
 .upload-btn {
   display: flex;
   align-items: center;
@@ -472,18 +661,22 @@ const deleteFile = async (file) => {
   font-weight: 500;
   transition: all 0.2s;
 }
+
 .upload-btn:hover:not(:disabled) {
   background-color: var(--primary-hover);
   color: white;
 }
+
 .upload-btn:disabled {
   background-color: #cbd5e1;
   cursor: not-allowed;
 }
+
 .btn-icon-small {
   width: 14px;
   height: 14px;
 }
+
 .spin-icon {
   width: 12px;
   height: 12px;
@@ -492,35 +685,109 @@ const deleteFile = async (file) => {
   margin-right: 4px;
   vertical-align: middle;
 }
-.file-status {
-  display: flex;
-  align-items: center;
-}
-.file-status.error {
-  color: #ef4444;
-}
+
 .delete-btn {
   color: #ef4444;
   opacity: 0;
   transition: all 0.2s ease;
 }
+
 .card:hover .delete-btn {
   opacity: 0.6;
 }
+
 .delete-btn:hover {
   background-color: #fee2e2;
   color: #ef4444 !important;
   opacity: 1 !important;
 }
 
-.word-icon { background-color: #eff6ff; color: #3b82f6; }
-.excel-icon { background-color: #ecfdf5; color: #10b981; }
-.ppt-icon { background-color: #fef2f2; color: #ef4444; }
-.pdf-icon { background-color: #fee2e2; color: #ef4444; }
-.video-icon { background-color: #e0e7ff; color: #4f46e5; }
-.default-icon { background-color: #f1f5f9; color: #64748b; }
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-modal {
+  width: 90vw;
+  height: 90vh;
+  max-width: 1400px;
+  max-height: 900px;
+  background-color: #ffffff;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.html-preview-modal {
+  max-width: 1200px;
+}
+
+.modal-header {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-color);
+  background-color: #f8fafc;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 6px;
+}
+
+.close-btn:hover {
+  background-color: #e2e8f0;
+  color: #ef4444;
+}
+
+.html-preview-body {
+  flex: 1;
+  background-color: #f8fafc;
+}
+
+.html-preview-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
 
 @keyframes spin {
-  100% { transform: rotate(360deg); }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 </style>

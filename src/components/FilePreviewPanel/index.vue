@@ -4,13 +4,8 @@
       <div v-if="visible" class="preview-overlay" @click.self="handleClose">
         <div class="preview-modal">
           <div class="modal-header">
-            <h3>课件与资料预览</h3>
+            <h3>文件预览</h3>
             <div class="header-actions">
-              <!-- <button class="save-btn" @click="handleSaveClick" :disabled="isSaving" v-if="currentFileKey">
-                <Loader2 class="icon spin" v-if="isSaving" />
-                <Save class="icon" v-else />
-                <span>{{ isSaving ? '强制保存中...' : '保存修改' }}</span>
-              </button> -->
               <button class="close-btn" @click="handleClose">
                 <X class="icon" />
               </button>
@@ -26,87 +21,74 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, watch, nextTick, ref } from 'vue'
-import { getConfigAPI, forceSaveAPI } from "@/api/file"
-import { X, Save, Loader2 } from 'lucide-vue-next'
+import { nextTick, onBeforeUnmount, watch } from "vue"
+import { X } from "lucide-vue-next"
+
+import { getFileConfigAPI } from "@/api/file"
 
 const props = defineProps({
   visible: {
     type: Boolean,
-    default: false
+    default: false,
   },
   fileId: {
     type: [String, Number],
-    default: null
-  }
+    default: null,
+  },
+  fileKind: {
+    type: String,
+    default: "knowledge",
+  },
 })
 
-const emit = defineEmits(['update:visible'])
+const emit = defineEmits(["update:visible"])
 
 let docEditor = null
-const currentFileKey = ref(null)
-const isSaving = ref(false)
 
 const initEditor = async () => {
   if (docEditor) {
     docEditor.destroyEditor()
     docEditor = null
   }
-  if (!props.fileId) return
-  
+  if (!props.fileId || !props.fileKind) {
+    return
+  }
+
   try {
-    const config = await getConfigAPI(props.fileId)
-    // // ONLYOFFICE 的标准初始化配置中，key 通常位于 config.document.key
-    // // 但为兼容可能被后端扁平化包裹的情况，我们做了兼容读取：
-    // currentFileKey.value = config.document?.key || config.key 
-    
+    const config = await getFileConfigAPI(props.fileKind, props.fileId)
     await nextTick()
-    if (document.getElementById('onlyoffice-editor') && window.DocsAPI) {
-      docEditor = new window.DocsAPI.DocEditor('onlyoffice-editor', config)
+    if (document.getElementById("onlyoffice-editor") && window.DocsAPI) {
+      docEditor = new window.DocsAPI.DocEditor("onlyoffice-editor", config)
     }
   } catch (error) {
-    console.error('Failed to initialize ONLYOFFICE editor:', error)
+    console.error("Failed to initialize ONLYOFFICE editor:", error)
   }
 }
 
-watch(() => props.visible, (newVal) => {
-  if (newVal) {
-    document.body.style.overflow = 'hidden' // 防止背景滚动
-    initEditor()
-  } else {
-    document.body.style.overflow = ''
+watch(
+  () => [props.visible, props.fileId, props.fileKind],
+  async ([visible]) => {
+    if (visible) {
+      document.body.style.overflow = "hidden"
+      await initEditor()
+      return
+    }
+
+    document.body.style.overflow = ""
     if (docEditor) {
       docEditor.destroyEditor()
       docEditor = null
     }
-  }
-})
+  },
+  { immediate: true }
+)
 
 const handleClose = () => {
-  emit('update:visible', false)
+  emit("update:visible", false)
 }
 
-// const handleSave = async (key) => {
-//     const res = await forceSaveAPI(key)
-//     console.log("强制保存的响应：", res.data)
-// }
-
-// const handleSaveClick = async () => {
-//   if (!currentFileKey.value) return
-//   isSaving.value = true
-//   try {
-//     await handleSave(currentFileKey.value)
-//   } catch (error) {
-//     console.error('Save failed:', error)
-//   } finally {
-//     setTimeout(() => {
-//       isSaving.value = false
-//     }, 500) // 增加微小延迟让动效显得更饱满
-//   }
-// }
-
 onBeforeUnmount(() => {
-  document.body.style.overflow = ''
+  document.body.style.overflow = ""
   if (docEditor) {
     docEditor.destroyEditor()
     docEditor = null
@@ -117,10 +99,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .preview-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background-color: rgba(15, 23, 42, 0.6);
   backdrop-filter: blur(4px);
   z-index: 9999;
@@ -165,47 +144,6 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.save-btn {
-  background-color: var(--primary-color);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
-  transition: all 0.2s;
-}
-
-.save-btn:hover:not(:disabled) {
-  background-color: var(--primary-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(79, 70, 229, 0.3);
-}
-
-.save-btn:disabled {
-  background-color: #94a3b8;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.save-btn .icon {
-  width: 16px;
-  height: 16px;
-  margin-right: 6px;
-}
-
-.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  100% { transform: rotate(360deg); }
-}
-
 .close-btn {
   background: transparent;
   border: none;
@@ -238,13 +176,9 @@ onBeforeUnmount(() => {
 
 .editor-container {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
 }
 
-/* 过渡动画 */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s ease;

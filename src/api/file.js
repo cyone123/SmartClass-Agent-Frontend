@@ -1,70 +1,88 @@
 import request from "@/api/index"
 import axios from "axios"
 
-export function getConfigAPI(file_id) {
-    return request({
-        url: `file/config/${file_id}`,
-        method: 'GET'
-    })
+export function getFileConfigAPI(fileKind, fileId) {
+  return request({
+    url: `file/config/${fileKind}/${fileId}`,
+    method: "GET",
+  })
+}
+
+export function getFileDownloadUrl(fileKind, fileId) {
+  return `/api/file/download/${fileKind}/${fileId}`
+}
+
+export function getHtmlArtifactPreviewUrl(fileId) {
+  return `/api/file/preview/artifact/${fileId}`
 }
 
 export function forceSaveAPI(key) {
-    return axios({
-        url: '/savefile/command',
-        method: 'POST',
-        data: {
-            "c": "forcesave",
-            "key": key
-        }
-    })
+  return axios({
+    url: "/savefile/command",
+    method: "POST",
+    data: {
+      c: "forcesave",
+      key,
+    },
+  })
 }
 
-export function getKnowledgeFileListAPI(plan_id) {
-    return request({
-        url: 'file/knowledgeFile',
-        method: 'GET',
-        params: {
-            plan_id: plan_id
-        }
-    })
+export function getKnowledgeFileListAPI(planId) {
+  return request({
+    url: "file/knowledgeFile",
+    method: "GET",
+    params: {
+      plan_id: planId,
+    },
+  })
 }
 
-export function uploadKnowledgeFileAPI(plan_id, file) {
-    const formData = new FormData()
-    formData.append('file', file)
-    
-    return request({
-        url: 'file/knowledgeFile/upload',
-        method: 'POST',
-        params: { plan_id: plan_id },
-        data: formData,
-        headers: {
-            'Content-Type': 'multipart/form-data'
-        }
-    })
+export function getArtifactListAPI(threadId) {
+  return request({
+    url: "file/artifact",
+    method: "GET",
+    params: {
+      thread_id: threadId,
+    },
+  })
 }
 
-export function uploadAttachmentFileAPI(plan_id, thread_id, file) {
-    const formData = new FormData()
-    formData.append('file', file)
+export function uploadKnowledgeFileAPI(planId, file) {
+  const formData = new FormData()
+  formData.append("file", file)
 
-    return request({
-        url: 'file/attachment/upload',
-        method: 'POST',
-        params: {
-            plan_id: plan_id,
-            thread_id: thread_id
-        },
-        data: formData,
-        headers: {
-            'Content-Type': 'multipart/form-data'
-        }
-    })
+  return request({
+    url: "file/knowledgeFile/upload",
+    method: "POST",
+    params: { plan_id: planId },
+    data: formData,
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  })
 }
 
-export function deleteKnowledgeFileAPI(file_id) {
-    return request({
-        url: `file/${file_id}`,
-        method: 'DELETE'
-    })
+export function uploadAttachmentFileAPI(planId, threadId, file) {
+  const formData = new FormData()
+  formData.append("file", file)
+
+  return request({
+    url: "file/attachment/upload",
+    method: "POST",
+    params: {
+      plan_id: planId,
+      thread_id: threadId,
+    },
+    data: formData,
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  })
+}
+
+export function deleteKnowledgeFileAPI(fileId) {
+  return request({
+    url: `file/${fileId}`,
+    method: "DELETE",
+  })
 }

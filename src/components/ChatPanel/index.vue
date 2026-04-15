@@ -228,11 +228,13 @@ import { ElMessage } from 'element-plus'
 
 import { uploadAttachmentFileAPI } from '@/api/file'
 import { getMessageHistry } from '@/api/session'
+import { useArtifactStore } from '@/store/artifact'
 import { useSessionStore } from '@/store/session'
 import AiMarkdownMessage from './AiMarkdownMessage.vue'
 import { normalizeMarkdownSource as normalizeMessageContent } from './markdown'
 
 const sessionStore = useSessionStore()
+const artifactStore = useArtifactStore()
 const { activeSessionId, activeThreadId: threadId, activePlanId } = storeToRefs(sessionStore)
 
 const chatBodyRef = ref(null)
@@ -660,17 +662,15 @@ const handleParsedEvent = async (event, data, streamState) => {
     updateSuggestions(streamState, payload)
     return false
   }
-/* 
-  if (event === 'message') {
-    if (streamState.hasReceivedToken) {
-      return false
-    }
-    if (data) {
-      await appendTokenToMessage(streamState, streamState.runId, data)
+
+  if (event === 'artifact') {
+    const payload = parseJsonPayload(data)
+    if (payload?.artifact) {
+      artifactStore.upsertArtifact(payload.artifact)
     }
     return false
   }
-*/
+
   if (event === 'error') {
     const payload = parseJsonPayload(data)
     streamState.hasReceivedError = true
