@@ -135,6 +135,21 @@
             <Paperclip class="tool-icon" />
             <span class="tool-text">资料</span>
           </button>
+          <button
+            class="tool-btn"
+            :class="{
+              'is-active': isVoiceRecording,
+              'is-processing': isVoiceTranscribing
+            }"
+            :disabled="isVoiceTranscribing || (!isVoiceInputSupported && !isVoiceBusy)"
+            :title="voiceButtonTitle"
+            @click="toggleVoiceRecording"
+          >
+            <Loader2 v-if="isVoiceTranscribing" class="tool-icon spin-icon" />
+            <Square v-else-if="isVoiceRecording" class="tool-icon" />
+            <Mic v-else class="tool-icon" />
+            <span class="tool-text">{{ voiceButtonText }}</span>
+          </button>
           <button class="tool-btn" title="教案模板">
             <LayoutTemplate class="tool-icon" />
             <span class="tool-text">模板</span>
@@ -143,6 +158,7 @@
             ref="attachmentInputRef"
             type="file"
             multiple
+            accept=".docx,.pdf,.mp4"
             style="display: none"
             @change="handleAttachmentSelect"
           />
@@ -154,24 +170,24 @@
             :key="file.uid"
             class="attachment-card"
             :class="{
-              'is-uploading': file.status === 'uploading',
+              'is-processing': isPendingAttachmentProcessing(file),
               'is-error': file.status === 'error'
             }"
           >
-            <div v-if="file.status === 'uploading'" class="uploading-spinner">
+            <div v-if="shouldShowPendingAttachmentSpinner(file)" class="uploading-spinner">
               <Loader2 class="spinner-icon" />
             </div>
             <FileText v-else class="file-icon" />
 
             <div class="attachment-meta">
               <span class="file-name" :title="file.name">{{ file.name }}</span>
-              <span v-if="file.status === 'error'" class="attachment-status-text">
-                {{ file.errorMessage || '上传失败' }}
+              <span v-if="getPendingAttachmentStatusText(file)" class="attachment-status-text">
+                {{ getPendingAttachmentStatusText(file) }}
               </span>
             </div>
 
             <button
-              v-if="file.status !== 'uploading'"
+              v-if="!isPendingAttachmentProcessing(file)"
               class="remove-file-btn"
               @click="removeAttachment(file.uid)"
             >
@@ -217,16 +233,18 @@ import {
   LayoutTemplate,
   Loader2,
   MessageSquarePlus,
+  Mic,
   MoreHorizontal,
   Paperclip,
   Send,
+  Square,
   User,
   X
 } from 'lucide-vue-next'
 import { storeToRefs } from 'pinia'
 import { ElMessage } from 'element-plus'
 
-import { uploadAttachmentFileAPI } from '@/api/file'
+import { transcribeVoiceAttachmentAPI, uploadAttachmentFileAPI } from '@/api/file'
 import { getMessageHistry } from '@/api/session'
 import { useArtifactStore } from '@/store/artifact'
 import { useSessionStore } from '@/store/session'
@@ -246,6 +264,14 @@ const inputText = ref('')
 const pendingAttachments = ref([])
 const isStreaming = ref(false)
 const currentAbortController = ref(null)
+const recordingStreamRef = ref(null)
+const audioContextRef = ref(null)
+const recordingSourceNodeRef = ref(null)
+const recordingProcessorNodeRef = ref(null)
+const recordingGainNodeRef = ref(null)
+const recordingChunksRef = ref([])
+const recordingSampleRateRef = ref(44100)
+const voiceStatus = ref('idle')
 const isPinnedToBottom = ref(true)
 const activeSuggestions = ref([])
 const activeSuggestionRunId = ref('')
@@ -256,12 +282,45 @@ const showSuggestions = computed(() => {
   return activeSuggestions.value.length > 0 && !!activeSuggestionRunId.value
 })
 
-const hasUploadingAttachments = computed(() =>
-  pendingAttachments.value.some((file) => file.status === 'uploading')
+const isVoiceInputSupported =
+  typeof window !== 'undefined' &&
+  typeof navigator !== 'undefined' &&
+  !!navigator.mediaDevices?.getUserMedia &&
+  !!(window.AudioContext || window.webkitAudioContext)
+
+const isVoiceRecording = computed(() => voiceStatus.value === 'recording')
+const isVoiceTranscribing = computed(() => voiceStatus.value === 'transcribing')
+const isVoiceBusy = computed(() => isVoiceRecording.value || isVoiceTranscribing.value)
+const voiceButtonText = computed(() => {
+  if (isVoiceTranscribing.value) {
+    return '识别中'
+  }
+  if (isVoiceRecording.value) {
+    return '停止'
+  }
+  return '语音'
+})
+const voiceButtonTitle = computed(() => {
+  if (isVoiceTranscribing.value) {
+    return '识别中'
+  }
+  if (isVoiceRecording.value) {
+    return '停止录音'
+  }
+  return '语音输入'
+})
+
+const hasProcessingAttachments = computed(() =>
+  pendingAttachments.value.some((file) => isPendingAttachmentProcessing(file))
 )
 
 const canSend = computed(() => {
-  return inputText.value.trim().length > 0 && !isStreaming.value && !hasUploadingAttachments.value
+  return (
+    inputText.value.trim().length > 0 &&
+    !isStreaming.value &&
+    !hasProcessingAttachments.value &&
+    !isVoiceBusy.value
+  )
 })
 
 const createAttachmentUid = () => {
@@ -287,11 +346,13 @@ const handleAiMessageRendered = async () => {
 const createPendingAttachment = (file) => {
   return {
     uid: createAttachmentUid(),
+    kind: 'document',
     id: null,
     name: file.name,
     size: file.size,
     status: 'uploading',
-    errorMessage: ''
+    errorMessage: '',
+    transcript: ''
   }
 }
 
@@ -360,9 +421,37 @@ const updatePendingAttachment = (uid, patch) => {
   Object.assign(target, patch)
 }
 
+const removePendingAttachmentByUid = (uid) => {
+  const index = pendingAttachments.value.findIndex((file) => file.uid === uid)
+  if (index > -1) {
+    pendingAttachments.value.splice(index, 1)
+  }
+}
+
+const isPendingAttachmentProcessing = (file) => {
+  return ['uploading', 'transcribing'].includes(file?.status)
+}
+
+const shouldShowPendingAttachmentSpinner = (file) => {
+  return ['uploading', 'transcribing'].includes(file?.status)
+}
+
+const getPendingAttachmentStatusText = (file) => {
+  if (!file) {
+    return ''
+  }
+  if (file.status === 'uploading') {
+    return '上传中...'
+  }
+  if (file.status === 'error') {
+    return file.errorMessage || '上传失败'
+  }
+  return ''
+}
+
 const getSuccessfulAttachments = () => {
   return pendingAttachments.value
-    .filter((file) => file.status === 'success' && file.id)
+    .filter((file) => file.kind === 'document' && file.status === 'ready' && file.id)
     .map((file) => ({
       uid: file.uid,
       id: file.id,
@@ -371,16 +460,217 @@ const getSuccessfulAttachments = () => {
     }))
 }
 
-const triggerAttachmentUpload = () => {
+const ensureComposerContext = () => {
   if (!activePlanId.value) {
     ElMessage.warning('请先选择或新建一个左侧的教学计划')
-    return
+    return false
   }
   if (!threadId.value) {
     ElMessage.warning('请先选择一个会话后再上传附件')
+    return false
+  }
+  return true
+}
+
+const triggerAttachmentUpload = () => {
+  if (!ensureComposerContext()) {
     return
   }
   attachmentInputRef.value?.click()
+}
+
+const buildVoiceAttachmentName = () => {
+  const now = new Date()
+  const parts = [now.getHours(), now.getMinutes(), now.getSeconds()].map((value) =>
+    String(value).padStart(2, '0')
+  )
+  return `voice_${parts.join('')}.wav`
+}
+
+const appendTranscriptToInput = async (transcript) => {
+  if (!transcript) {
+    return
+  }
+  inputText.value =
+    inputText.value.trim().length > 0 ? `${inputText.value.trimEnd()}\n${transcript}` : transcript
+  await focusInput()
+}
+
+const mergeRecordingSamples = (chunks) => {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+  const merged = new Float32Array(totalLength)
+  let offset = 0
+
+  chunks.forEach((chunk) => {
+    merged.set(chunk, offset)
+    offset += chunk.length
+  })
+
+  return merged
+}
+
+const encodeWavBlob = (samples, sampleRate) => {
+  const bytesPerSample = 2
+  const buffer = new ArrayBuffer(44 + samples.length * bytesPerSample)
+  const view = new DataView(buffer)
+
+  const writeAscii = (offset, value) => {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset + index, value.charCodeAt(index))
+    }
+  }
+
+  writeAscii(0, 'RIFF')
+  view.setUint32(4, 36 + samples.length * bytesPerSample, true)
+  writeAscii(8, 'WAVE')
+  writeAscii(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * bytesPerSample, true)
+  view.setUint16(32, bytesPerSample, true)
+  view.setUint16(34, 16, true)
+  writeAscii(36, 'data')
+  view.setUint32(40, samples.length * bytesPerSample, true)
+
+  let offset = 44
+  samples.forEach((sample) => {
+    const normalized = Math.max(-1, Math.min(1, sample))
+    const pcm = normalized < 0 ? normalized * 0x8000 : normalized * 0x7fff
+    view.setInt16(offset, pcm, true)
+    offset += bytesPerSample
+  })
+
+  return new Blob([buffer], { type: 'audio/wav' })
+}
+
+const cleanupVoiceRecorder = () => {
+  recordingChunksRef.value = []
+  recordingSampleRateRef.value = 44100
+
+  if (recordingProcessorNodeRef.value) {
+    recordingProcessorNodeRef.value.onaudioprocess = null
+    recordingProcessorNodeRef.value.disconnect()
+  }
+  if (recordingSourceNodeRef.value) {
+    recordingSourceNodeRef.value.disconnect()
+  }
+  if (recordingGainNodeRef.value) {
+    recordingGainNodeRef.value.disconnect()
+  }
+  if (recordingStreamRef.value) {
+    recordingStreamRef.value.getTracks().forEach((track) => track.stop())
+  }
+  if (audioContextRef.value) {
+    Promise.resolve(audioContextRef.value.close()).catch(() => {})
+  }
+
+  recordingStreamRef.value = null
+  audioContextRef.value = null
+  recordingSourceNodeRef.value = null
+  recordingProcessorNodeRef.value = null
+  recordingGainNodeRef.value = null
+}
+
+const discardVoiceRecording = () => {
+  cleanupVoiceRecorder()
+  voiceStatus.value = 'idle'
+}
+
+const finalizeVoiceRecording = async () => {
+  const sessionIdAtStart = activeSessionId.value
+  const mergedSamples = mergeRecordingSamples(recordingChunksRef.value)
+  const sampleRate = recordingSampleRateRef.value
+  cleanupVoiceRecorder()
+  voiceStatus.value = 'transcribing'
+
+  if (!mergedSamples.length) {
+    voiceStatus.value = 'idle'
+    ElMessage.error('录音内容为空')
+    return
+  }
+
+  const voiceBlob = encodeWavBlob(mergedSamples, sampleRate)
+  const voiceFile = new File([voiceBlob], buildVoiceAttachmentName(), {
+    type: 'audio/wav'
+  })
+  await transcribeVoiceAttachment(voiceFile, sessionIdAtStart)
+}
+
+const transcribeVoiceAttachment = async (voiceFile, sessionIdAtStart) => {
+  try {
+    const res = await transcribeVoiceAttachmentAPI(activePlanId.value, threadId.value, voiceFile)
+    const payload = res?.data || res
+    const transcript = normalizeMessageContent(payload?.transcript || '').trim()
+
+    if (transcript && sessionIdAtStart === activeSessionId.value) {
+      await appendTranscriptToInput(transcript)
+    }
+  } catch (error) {
+    const errorMessage =
+      error?.response?.data?.detail ||
+      error?.response?.data?.message ||
+      '语音转写失败'
+    ElMessage.error(errorMessage)
+  } finally {
+    voiceStatus.value = 'idle'
+  }
+}
+
+const toggleVoiceRecording = async () => {
+  if (isVoiceTranscribing.value) {
+    return
+  }
+  if (isVoiceRecording.value) {
+    await finalizeVoiceRecording()
+    return
+  }
+  if (!isVoiceInputSupported) {
+    ElMessage.warning('当前浏览器不支持语音输入，请使用桌面版 Chrome 或 Edge。')
+    return
+  }
+  if (!ensureComposerContext()) {
+    return
+  }
+
+  try {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const audioContext = new AudioContextCtor()
+    const sourceNode = audioContext.createMediaStreamSource(stream)
+    const processorNode = audioContext.createScriptProcessor(4096, 1, 1)
+    const gainNode = audioContext.createGain()
+    gainNode.gain.value = 0
+
+    recordingStreamRef.value = stream
+    audioContextRef.value = audioContext
+    recordingSourceNodeRef.value = sourceNode
+    recordingProcessorNodeRef.value = processorNode
+    recordingGainNodeRef.value = gainNode
+    recordingChunksRef.value = []
+    recordingSampleRateRef.value = audioContext.sampleRate
+    voiceStatus.value = 'recording'
+
+    processorNode.onaudioprocess = (event) => {
+      const inputData = event.inputBuffer.getChannelData(0)
+      recordingChunksRef.value.push(new Float32Array(inputData))
+    }
+
+    sourceNode.connect(processorNode)
+    processorNode.connect(gainNode)
+    gainNode.connect(audioContext.destination)
+    await audioContext.resume()
+    await scrollToBottom()
+  } catch (error) {
+    const errorMessage =
+      error?.name === 'NotAllowedError'
+        ? '麦克风权限被拒绝，请允许浏览器访问麦克风。'
+        : '无法启动录音，请稍后重试。'
+    cleanupVoiceRecorder()
+    voiceStatus.value = 'idle'
+    ElMessage.error(errorMessage)
+  }
 }
 
 const uploadAttachment = async (rawFile) => {
@@ -394,7 +684,7 @@ const uploadAttachment = async (rawFile) => {
 
     updatePendingAttachment(localAttachment.uid, {
       id: attachment?.id ?? null,
-      status: 'success',
+      status: 'ready',
       errorMessage: ''
     })
   } catch (error) {
@@ -420,12 +710,7 @@ const handleAttachmentSelect = async (event) => {
   if (!files.length) {
     return
   }
-  if (!activePlanId.value) {
-    ElMessage.warning('请先选择或新建一个左侧的教学计划')
-    return
-  }
-  if (!threadId.value) {
-    ElMessage.warning('请先选择一个会话后再上传附件')
+  if (!ensureComposerContext()) {
     return
   }
 
@@ -435,10 +720,7 @@ const handleAttachmentSelect = async (event) => {
 }
 
 const removeAttachment = (uid) => {
-  const index = pendingAttachments.value.findIndex((file) => file.uid === uid)
-  if (index > -1) {
-    pendingAttachments.value.splice(index, 1)
-  }
+  removePendingAttachmentByUid(uid)
 }
 
 const appendErrorMessage = async (content = '对话请求失败，请稍后重试。') => {
@@ -815,6 +1097,9 @@ const normalizeMessageList = (items = []) => {
 }
 
 const loadHistory = async () => {
+  if (isVoiceRecording.value) {
+    discardVoiceRecording()
+  }
   pendingAttachments.value = []
   clearSuggestions()
   skipSuggestionsForCurrentStream.value = false
@@ -860,6 +1145,9 @@ watch(
   () => activeSessionId.value,
   () => {
     currentAbortController.value?.abort()
+    if (isVoiceRecording.value) {
+      discardVoiceRecording()
+    }
     clearSuggestions()
     skipSuggestionsForCurrentStream.value = false
     loadHistory()
@@ -869,6 +1157,11 @@ watch(
 
 onBeforeUnmount(() => {
   currentAbortController.value?.abort()
+  if (isVoiceRecording.value) {
+    discardVoiceRecording()
+  } else {
+    cleanupVoiceRecorder()
+  }
   clearSuggestions()
 })
 </script>
@@ -1313,6 +1606,21 @@ onBeforeUnmount(() => {
   color: var(--text-main);
 }
 
+.tool-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.tool-btn.is-active {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+}
+
+.tool-btn.is-processing {
+  background-color: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+}
+
 .tool-icon {
   width: 16px;
   height: 16px;
@@ -1338,9 +1646,14 @@ onBeforeUnmount(() => {
   color: var(--text-main);
 }
 
-.attachment-card.is-uploading {
+.attachment-card.is-processing {
   border-color: #c7d2fe;
   background-color: #f8faff;
+}
+
+.attachment-card.is-recording {
+  border-color: #fda4af;
+  background-color: #fff1f2;
 }
 
 .attachment-card.is-error {
@@ -1355,10 +1668,14 @@ onBeforeUnmount(() => {
 }
 
 .attachment-status-text {
-  color: #ef4444;
+  color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.3;
   margin-top: 2px;
+}
+
+.attachment-card.is-error .attachment-status-text {
+  color: #ef4444;
 }
 
 .sent-attachment {
@@ -1388,6 +1705,11 @@ onBeforeUnmount(() => {
   margin-right: 6px;
   color: var(--primary-color);
   animation: spin 1s linear infinite;
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+  transform-origin: center;
 }
 
 .file-icon {

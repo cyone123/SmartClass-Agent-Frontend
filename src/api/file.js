@@ -80,6 +80,24 @@ export function uploadAttachmentFileAPI(planId, threadId, file) {
   })
 }
 
+export function transcribeVoiceAttachmentAPI(planId, threadId, file) {
+  const formData = new FormData()
+  formData.append("file", file)
+
+  return request({
+    url: "file/attachment/voice/transcribe",
+    method: "POST",
+    params: {
+      plan_id: planId,
+      thread_id: threadId,
+    },
+    data: formData,
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  })
+}
+
 export function deleteKnowledgeFileAPI(fileId) {
   return request({
     url: `file/${fileId}`,
