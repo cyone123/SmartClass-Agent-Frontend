@@ -1,9 +1,9 @@
 <template>
   <div class="sidebar">
     <div class="logo-area">
-      <div class="logo-icon-wrapper">
+      <!-- <div class="logo-icon-wrapper">
         <MonitorPlay class="logo-icon" />
-      </div>
+      </div> -->
       <span class="logo-text">智课伴侣</span>
     </div>
 

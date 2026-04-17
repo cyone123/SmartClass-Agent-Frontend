@@ -14,7 +14,7 @@
             <MessageSquarePlus class="empty-icon" />
           </div>
           <p>当前暂无对话，请在下方输入您的需求</p>
-          <span class="empty-hint">您可以让我生成教学设计、教案草稿，或结合附件进行分析。</span>
+          <span class="empty-hint">您可以让我生成教学设计、PPT、教案草稿，或结合附件进行分析。</span>
         </div>
       </div>
 
@@ -130,11 +130,42 @@
                   流程已暂停，请输入补充内容或修改建议后重新生成。
                 </div>
 
+                <div
+                  v-if="msg.approval?.stage === 'teaching_plan_review'"
+                  class="approval-artifact-selector"
+                >
+                  <div class="approval-selector-title">选择要生成的产物</div>
+                  <label
+                    v-for="option in getApprovalArtifactOptions(msg)"
+                    :key="option.type"
+                    class="approval-selector-option"
+                    :class="{
+                      'is-selected': isArtifactOptionSelected(msg, option.type),
+                      'is-disabled':
+                        !isApprovalCardActionable(index) || msg.state === 'resolved' || isStreaming
+                    }"
+                  >
+                    <input
+                      type="checkbox"
+                      class="approval-selector-native"
+                      :checked="isArtifactOptionSelected(msg, option.type)"
+                      :disabled="
+                        !isApprovalCardActionable(index) || msg.state === 'resolved' || isStreaming
+                      "
+                      @change="toggleApprovalArtifactType(msg, option.type, $event.target.checked)"
+                    />
+                    <span class="approval-selector-check" aria-hidden="true">
+                      <Check class="approval-selector-check-icon" />
+                    </span>
+                    <span class="approval-selector-option-text">{{ option.label }}</span>
+                  </label>
+                </div>
+
                 <div class="approval-actions">
                   <button
                     type="button"
                     class="approval-btn approval-btn-primary"
-                    :disabled="!isApprovalCardActionable(index) || msg.state === 'resolved' || isStreaming"
+                    :disabled="isApprovalConfirmDisabled(msg, index)"
                     @click="confirmApproval(msg)"
                   >
                     {{ msg.approval?.confirm_label || '确认并继续' }}
@@ -401,6 +432,11 @@ const approvalMetadataAliases = Object.freeze(
 
 const approvalMetadataOrderedKeys = approvalMetadataFields.map((field) => field.key)
 const approvalMetadataHiddenKeys = new Set(['is_complete'])
+const defaultTeachingPlanArtifactOptions = Object.freeze([
+  { type: 'ppt', label: '课件 PPT', selected: true },
+  { type: 'docx', label: 'DOCX 教案', selected: true },
+  { type: 'html-game', label: 'HTML 互动演示', selected: true }
+])
 
 const createAttachmentUid = () => {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`
@@ -455,13 +491,40 @@ const clearSuggestions = () => {
   activeSuggestionRunId.value = ''
 }
 
+const normalizeApprovalArtifactOptions = (approval = {}) => {
+  if (approval?.stage !== 'teaching_plan_review') {
+    return []
+  }
+
+  const rawOptions =
+    Array.isArray(approval?.artifact_options) && approval.artifact_options.length > 0
+      ? approval.artifact_options
+      : defaultTeachingPlanArtifactOptions
+
+  return rawOptions.map((option) => ({
+    type: option?.type,
+    label: option?.label || option?.type || '',
+    selected: option?.selected !== false
+  }))
+}
+
 const normalizeApprovalMessage = (message = {}) => {
+  const approval = message?.approval || {}
+  const normalizedOptions = normalizeApprovalArtifactOptions(approval)
+  const selectedArtifactTypes = normalizedOptions
+    .filter((option) => option.selected)
+    .map((option) => option.type)
+
   return {
     ...message,
     role: 'ai',
     type: 'approval-card',
     state: message?.state || 'pending',
-    approval: message?.approval || {}
+    approval: {
+      ...approval,
+      artifact_options: normalizedOptions.length > 0 ? normalizedOptions : approval?.artifact_options || []
+    },
+    selectedArtifactTypes
   }
 }
 
@@ -479,6 +542,39 @@ const isApprovalCardActionable = (index) => {
     return false
   }
   return index === findLatestApprovalCardIndex()
+}
+
+const getApprovalArtifactOptions = (message) => {
+  return Array.isArray(message?.approval?.artifact_options) ? message.approval.artifact_options : []
+}
+
+const isArtifactOptionSelected = (message, artifactType) => {
+  return Array.isArray(message?.selectedArtifactTypes)
+    ? message.selectedArtifactTypes.includes(artifactType)
+    : false
+}
+
+const isApprovalSelectionEmpty = (message) => {
+  return message?.approval?.stage === 'teaching_plan_review' && !(message?.selectedArtifactTypes?.length > 0)
+}
+
+const isApprovalConfirmDisabled = (message, index) => {
+  if (!isApprovalCardActionable(index) || message?.state === 'resolved' || isStreaming.value) {
+    return true
+  }
+  return isApprovalSelectionEmpty(message)
+}
+
+const toggleApprovalArtifactType = (message, artifactType, checked) => {
+  if (!message || message?.approval?.stage !== 'teaching_plan_review') {
+    return
+  }
+
+  const current = Array.isArray(message.selectedArtifactTypes) ? [...message.selectedArtifactTypes] : []
+  const next = checked
+    ? [...new Set([...current, artifactType])]
+    : current.filter((item) => item !== artifactType)
+  message.selectedArtifactTypes = next
 }
 
 const markApprovalCardsResolved = () => {
@@ -1415,16 +1511,25 @@ const confirmApproval = async (message) => {
   if (!interruptId || isStreaming.value) {
     return
   }
+  if (isApprovalSelectionEmpty(message)) {
+    ElMessage.warning('至少选择一个产物')
+    return
+  }
 
   const previousState = message.state
   clearSuggestions()
   markApprovalCardsResolved()
   message.state = 'resolved'
 
-  const succeeded = await requestStreamReply('', [], {
+  const approvalPayload = {
     action: 'approve',
     interrupt_id: interruptId
-  })
+  }
+  if (message?.approval?.stage === 'teaching_plan_review') {
+    approvalPayload.selected_artifact_types = [...(message.selectedArtifactTypes || [])]
+  }
+
+  const succeeded = await requestStreamReply('', [], approvalPayload)
 
   if (!succeeded) {
     message.state = previousState || 'pending'
@@ -1950,6 +2055,124 @@ onBeforeUnmount(() => {
   color: var(--primary-color);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.approval-artifact-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.92) 100%);
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.approval-selector-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  letter-spacing: 0.01em;
+}
+
+.approval-selector-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  background: rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease,
+    color 0.18s ease;
+}
+
+.approval-selector-option:hover {
+  transform: translateY(-1px);
+  border-color: rgba(99, 102, 241, 0.32);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.approval-selector-option.is-selected {
+  border-color: rgba(79, 70, 229, 0.34);
+  background: linear-gradient(180deg, rgba(238, 242, 255, 0.96) 0%, rgba(248, 250, 252, 0.96) 100%);
+  color: var(--text-main);
+  box-shadow:
+    0 10px 22px rgba(79, 70, 229, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.approval-selector-option.is-disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.approval-selector-native {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.approval-selector-check {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.72);
+  background: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.approval-selector-check-icon {
+  width: 12px;
+  height: 12px;
+  color: #ffffff;
+  opacity: 0;
+  transform: scale(0.7);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.approval-selector-option.is-selected .approval-selector-check {
+  border-color: var(--primary-color);
+  background: linear-gradient(180deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+  box-shadow: 0 6px 14px rgba(79, 70, 229, 0.18);
+}
+
+.approval-selector-option.is-selected .approval-selector-check-icon {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.approval-selector-option-text {
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+.approval-selector-option:focus-within {
+  border-color: rgba(79, 70, 229, 0.38);
+  box-shadow:
+    0 0 0 3px rgba(79, 70, 229, 0.08),
+    0 10px 22px rgba(15, 23, 42, 0.06);
 }
 
 .approval-actions {
