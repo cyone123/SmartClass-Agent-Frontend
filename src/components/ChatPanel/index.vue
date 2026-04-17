@@ -19,16 +19,16 @@
       </div>
 
       <div v-else class="message-list">
-        <div
-          v-for="(msg, index) in messages"
-          :key="msg.runId ? `${msg.runId}_${index}` : index"
-          class="message-wrapper"
-          :class="msg.role === 'teacher' ? 'message-right' : 'message-left'"
-        >
-          <div class="avatar" :class="msg.role">
-            <User v-if="msg.role === 'teacher'" class="avatar-icon" />
-            <Bot v-else class="avatar-icon" />
-          </div>
+        <template v-for="(msg, index) in messages" :key="msg.runId ? `${msg.runId}_${index}` : index">
+          <div
+            v-if="shouldRenderMessage(msg)"
+            class="message-wrapper"
+            :class="msg.role === 'teacher' ? 'message-right' : 'message-left'"
+          >
+            <div class="avatar" :class="msg.role">
+              <User v-if="msg.role === 'teacher'" class="avatar-icon" />
+              <Bot v-else class="avatar-icon" />
+            </div>
 
           <div class="message-content">
             <template v-if="!msg.type || msg.type === 'text'">
@@ -94,6 +94,63 @@
               </div>
             </template>
 
+            <template v-else-if="msg.type === 'approval-card'">
+              <div
+                class="approval-card"
+                :class="{
+                  'is-awaiting-feedback': msg.state === 'awaiting-feedback',
+                  'is-resolved': msg.state === 'resolved'
+                }"
+              >
+                <div class="approval-card-header">
+                  <div class="approval-card-title">{{ getApprovalTitle(msg) }}</div>
+                  <div class="approval-card-desc">{{ getApprovalDescription(msg) }}</div>
+                </div>
+
+                <div
+                  v-if="
+                    msg.approval?.stage === 'metadata_review' &&
+                    getApprovalMetadataEntries(msg).length > 0
+                  "
+                  class="approval-metadata-grid"
+                >
+                  <div
+                    v-for="field in getApprovalMetadataEntries(msg)"
+                    :key="field.key"
+                    class="approval-metadata-item"
+                  >
+                    <div class="approval-metadata-label">{{ field.label }}</div>
+                    <div class="approval-metadata-value">
+                      {{ formatDynamicApprovalMetadataValue(field.value) }}
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="msg.state === 'awaiting-feedback'" class="approval-feedback-hint">
+                  流程已暂停，请输入补充内容或修改建议后重新生成。
+                </div>
+
+                <div class="approval-actions">
+                  <button
+                    type="button"
+                    class="approval-btn approval-btn-primary"
+                    :disabled="!isApprovalCardActionable(index) || msg.state === 'resolved' || isStreaming"
+                    @click="confirmApproval(msg)"
+                  >
+                    {{ msg.approval?.confirm_label || '确认并继续' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="approval-btn approval-btn-secondary"
+                    :disabled="!isApprovalCardActionable(index) || msg.state === 'resolved' || isStreaming"
+                    @click="cancelApproval(msg)"
+                  >
+                    {{ msg.approval?.cancel_label || '取消并修改' }}
+                  </button>
+                </div>
+              </div>
+            </template>
+
             <div v-if="msg.attachments && msg.attachments.length > 0" class="message-attachments">
               <div
                 v-for="file in msg.attachments"
@@ -104,8 +161,9 @@
                 <span class="file-name" :title="file.name">{{ file.name }}</span>
               </div>
             </div>
+            </div>
           </div>
-        </div>
+        </template>
       </div>
     </div>
 
@@ -323,6 +381,27 @@ const canSend = computed(() => {
   )
 })
 
+const approvalMetadataFields = [
+  { key: 'subject', label: '学科' },
+  { key: 'grade', label: '年级' },
+  { key: 'topic', label: '主题' },
+  { key: 'course_duration', label: '课时/时长' },
+  { key: 'core_points', label: '核心内容' },
+  { key: 'key_points', label: '重点' },
+  { key: 'difficult_points', label: '难点' },
+  { key: 'teaching_objectives', label: '教学目标' }
+]
+
+const approvalMetadataAliases = Object.freeze(
+  approvalMetadataFields.reduce((result, field) => {
+    result[field.key] = field.label
+    return result
+  }, {})
+)
+
+const approvalMetadataOrderedKeys = approvalMetadataFields.map((field) => field.key)
+const approvalMetadataHiddenKeys = new Set(['is_complete'])
+
 const createAttachmentUid = () => {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`
 }
@@ -374,6 +453,204 @@ const isActiveStreamState = (streamState) => {
 const clearSuggestions = () => {
   activeSuggestions.value = []
   activeSuggestionRunId.value = ''
+}
+
+const normalizeApprovalMessage = (message = {}) => {
+  return {
+    ...message,
+    role: 'ai',
+    type: 'approval-card',
+    state: message?.state || 'pending',
+    approval: message?.approval || {}
+  }
+}
+
+const findLatestApprovalCardIndex = () => {
+  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+    if (messages.value[index]?.type === 'approval-card') {
+      return index
+    }
+  }
+  return -1
+}
+
+const isApprovalCardActionable = (index) => {
+  if (index < 0 || index >= messages.value.length) {
+    return false
+  }
+  return index === findLatestApprovalCardIndex()
+}
+
+const markApprovalCardsResolved = () => {
+  messages.value.forEach((message) => {
+    if (message?.type === 'approval-card' && message.state !== 'resolved') {
+      message.state = 'resolved'
+    }
+  })
+}
+
+const focusChatInput = async () => {
+  await nextTick()
+  inputTextareaRef.value?.focus?.()
+}
+
+const getApprovalTitle = (message) => {
+  return message?.approval?.title || '请确认当前流程'
+}
+
+const getApprovalDescription = (message) => {
+  if (message?.state === 'awaiting-feedback') {
+    return '流程保持暂停，等待你补充修改意见。'
+  }
+  return message?.approval?.description || ''
+}
+
+const formatApprovalMetadataKey = (key) => {
+  if (!key) {
+    return 'Metadata'
+  }
+
+  if (approvalMetadataAliases[key]) {
+    return approvalMetadataAliases[key]
+  }
+
+  const normalizedKey = String(key)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!normalizedKey) {
+    return String(key)
+  }
+
+  return normalizedKey.replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+const getApprovalMetadataEntries = (message) => {
+  const metadata = message?.approval?.metadata
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return []
+  }
+
+  const entries = []
+  const seenKeys = new Set()
+
+  approvalMetadataOrderedKeys.forEach((key) => {
+    if (!(key in metadata) || approvalMetadataHiddenKeys.has(key)) {
+      return
+    }
+    seenKeys.add(key)
+    entries.push({
+      key,
+      label: formatApprovalMetadataKey(key),
+      value: metadata[key]
+    })
+  })
+
+  Object.entries(metadata).forEach(([key, value]) => {
+    if (seenKeys.has(key) || approvalMetadataHiddenKeys.has(key)) {
+      return
+    }
+    entries.push({
+      key,
+      label: formatApprovalMetadataKey(key),
+      value
+    })
+  })
+
+  return entries
+}
+
+const formatApprovalMetadataValue = (value) => {
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value.join('、') : '未提供'
+  }
+  if (value === null || value === undefined) {
+    return '未提供'
+  }
+  const text = String(value).trim()
+  return text ? text : '未提供'
+}
+
+const formatDynamicApprovalMetadataValue = (value) => {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return '未提供'
+    }
+
+    const allPrimitiveValues = value.every(
+      (item) =>
+        item === null ||
+        item === undefined ||
+        ['string', 'number', 'boolean'].includes(typeof item)
+    )
+    if (allPrimitiveValues) {
+      return value
+        .map((item) => {
+          if (item === null || item === undefined) {
+            return '未提供'
+          }
+          const normalizedItem = String(item).trim()
+          return normalizedItem || '未提供'
+        })
+        .join('、')
+    }
+
+    try {
+      return JSON.stringify(value, null, 2)
+    } catch {
+      return String(value)
+    }
+  }
+
+  if (value === null || value === undefined) {
+    return '未提供'
+  }
+
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2)
+    } catch {
+      return String(value)
+    }
+  }
+
+  const text = String(value).trim()
+  return text || '未提供'
+}
+
+const upsertApprovalCard = async (payload) => {
+  if (!payload?.interrupt_id) {
+    return
+  }
+
+  clearSuggestions()
+  const normalizedMessage = normalizeApprovalMessage({
+    role: 'ai',
+    type: 'approval-card',
+    runId: payload.run_id || '',
+    approval: payload,
+    state: 'pending'
+  })
+
+  const existingIndex = messages.value.findIndex(
+    (message) =>
+      message?.type === 'approval-card' &&
+      message?.approval?.interrupt_id === payload.interrupt_id
+  )
+
+  if (existingIndex >= 0) {
+    messages.value[existingIndex] = {
+      ...messages.value[existingIndex],
+      ...normalizedMessage
+    }
+  } else {
+    markApprovalCardsResolved()
+    messages.value.push(normalizedMessage)
+  }
+
+  await scrollToBottom()
 }
 
 const normalizeSuggestions = (items = []) => {
@@ -813,6 +1090,42 @@ const ensureAiTextMessage = (streamState, runId = '') => {
   return messages.value[streamState.aiMessageIndex]
 }
 
+const shouldRenderMessage = (message) => {
+  if (!message) {
+    return false
+  }
+
+  if (message.type && message.type !== 'text') {
+    return true
+  }
+
+  const hasAttachments = Array.isArray(message.attachments) && message.attachments.length > 0
+  const content = normalizeMessageContent(message.content || '').trim()
+  return Boolean(content || message.isPending || hasAttachments)
+}
+
+const removeEmptyAiPlaceholderMessage = (streamState, runId = '') => {
+  const currentIndex = streamState.aiMessageIndex
+  if (currentIndex < 0) {
+    return
+  }
+
+  const current = messages.value[currentIndex]
+  const isMatchingAiMessage =
+    current?.type === 'text' && current.role === 'ai' && current.runId === runId
+  if (!isMatchingAiMessage) {
+    return
+  }
+
+  const hasContent = normalizeMessageContent(current.content || '').trim().length > 0
+  if (current.isPending || hasContent) {
+    return
+  }
+
+  messages.value.splice(currentIndex, 1)
+  streamState.aiMessageIndex = -1
+}
+
 const shouldShowPendingAiMessage = (steps = []) => {
   return steps.length > 0 && steps.every((step) => step.status === 'success')
 }
@@ -837,8 +1150,13 @@ const updateProgressMessage = async (streamState, payload) => {
       currentAiMessage.runId === payload.run_id
 
     if (shouldPending || hasCurrentAiMessage) {
-      const aiMessage = ensureAiTextMessage(streamState, payload.run_id)
-      aiMessage.isPending = shouldPending
+      if (shouldPending) {
+        const aiMessage = ensureAiTextMessage(streamState, payload.run_id)
+        aiMessage.isPending = true
+      } else if (hasCurrentAiMessage) {
+        currentAiMessage.isPending = false
+        removeEmptyAiPlaceholderMessage(streamState, payload.run_id)
+      }
     }
   }
 
@@ -953,6 +1271,15 @@ const handleParsedEvent = async (event, data, streamState) => {
     return false
   }
 
+  if (event === 'approval') {
+    const payload = parseJsonPayload(data)
+    if (payload?.run_id) {
+      streamState.runId = payload.run_id
+    }
+    await upsertApprovalCard(payload)
+    return false
+  }
+
   if (event === 'error') {
     const payload = parseJsonPayload(data)
     streamState.hasReceivedError = true
@@ -976,7 +1303,21 @@ const handleParsedEvent = async (event, data, streamState) => {
 
 const handleStreamResponse = async (response, streamState) => {
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
+    let message = `HTTP ${response.status}`
+    try {
+      const payload = await response.json()
+      message = payload?.detail || payload?.message || message
+    } catch {
+      try {
+        const text = await response.text()
+        if (text) {
+          message = text
+        }
+      } catch {
+        // noop
+      }
+    }
+    throw new Error(message)
   }
 
   if (!response.body) {
@@ -1014,37 +1355,79 @@ const handleStreamResponse = async (response, streamState) => {
   }
 }
 
-const requestStreamReply = async (content, attachmentIds = []) => {
+const requestStreamReply = async (content = '', attachmentIds = [], approval = null) => {
   isStreaming.value = true
   currentAbortController.value = new AbortController()
   skipSuggestionsForCurrentStream.value = false
   const streamState = createStreamState(activeSessionId.value)
 
   try {
+    const payload = {
+      thread_id: threadId.value || undefined
+    }
+
+    if (content) {
+      payload.message = content
+    }
+    if (attachmentIds.length > 0) {
+      payload.attachment_ids = attachmentIds
+    }
+    if (approval) {
+      payload.approval = approval
+    }
+
     const response = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: {
         Accept: 'text/event-stream',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        message: content,
-        thread_id: threadId.value || undefined,
-        attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined
-      }),
+      body: JSON.stringify(payload),
       signal: currentAbortController.value.signal
     })
 
     await handleStreamResponse(response, streamState)
+    return true
   } catch (error) {
     if (error?.name !== 'AbortError' && !streamState.hasReceivedError && isActiveStreamState(streamState)) {
       console.error('Streaming chat failed:', error)
-      await appendErrorMessage()
+      await appendErrorMessage(error?.message || '对话请求失败，请稍后重试。')
     }
+    return false
   } finally {
     isStreaming.value = false
     currentAbortController.value = null
     await scrollToBottom()
+  }
+}
+
+const cancelApproval = async (message) => {
+  if (!message || isStreaming.value) {
+    return
+  }
+  message.state = 'awaiting-feedback'
+  clearSuggestions()
+  await focusChatInput()
+}
+
+const confirmApproval = async (message) => {
+  const interruptId = message?.approval?.interrupt_id
+  if (!interruptId || isStreaming.value) {
+    return
+  }
+
+  const previousState = message.state
+  clearSuggestions()
+  markApprovalCardsResolved()
+  message.state = 'resolved'
+
+  const succeeded = await requestStreamReply('', [], {
+    action: 'approve',
+    interrupt_id: interruptId
+  })
+
+  if (!succeeded) {
+    message.state = previousState || 'pending'
   }
 }
 
@@ -1056,6 +1439,7 @@ const sendMessage = async () => {
   const attachmentIds = successfulAttachments.map((file) => file.id)
 
   clearSuggestions()
+  markApprovalCardsResolved()
 
   messages.value.push({
     role: 'teacher',
@@ -1090,10 +1474,16 @@ const normalizeMessageList = (items = []) => {
     return []
   }
 
-  return items.map((message) => ({
-    ...message,
-    content: normalizeMessageContent(message?.content)
-  }))
+  return items.map((message) => {
+    if (message?.type === 'approval-card') {
+      return normalizeApprovalMessage(message)
+    }
+
+    return {
+      ...message,
+      content: normalizeMessageContent(message?.content)
+    }
+  })
 }
 
 const loadHistory = async () => {
@@ -1485,6 +1875,134 @@ onBeforeUnmount(() => {
   opacity: 0.86;
 }
 
+.approval-card {
+  width: 340px;
+  max-width: 100%;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.approval-card.is-awaiting-feedback {
+  border-color: rgba(79, 70, 229, 0.24);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.06);
+}
+
+.approval-card.is-resolved {
+  opacity: 0.76;
+}
+
+.approval-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.approval-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.approval-card-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.approval-metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.approval-metadata-item {
+  padding: 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.approval-metadata-label {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-disabled);
+}
+
+.approval-metadata-value {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.approval-feedback-hint {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(79, 70, 229, 0.06);
+  color: var(--primary-color);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.approval-btn {
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.approval-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.approval-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.approval-btn-primary {
+  border: 1px solid var(--primary-color);
+  background: var(--primary-color);
+  color: #ffffff;
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.14);
+}
+
+.approval-btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.approval-btn-secondary {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: #ffffff;
+  color: var(--text-secondary);
+}
+
+.approval-btn-secondary:hover:not(:disabled) {
+  border-color: rgba(79, 70, 229, 0.22);
+  color: var(--text-main);
+}
+
 .message-attachments {
   display: flex;
   flex-wrap: wrap;
@@ -1823,6 +2341,16 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: var(--text-disabled);
   margin-top: 12px;
+}
+
+@media (max-width: 720px) {
+  .approval-metadata-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .approval-actions {
+    flex-direction: column;
+  }
 }
 
 @keyframes spin {
