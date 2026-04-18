@@ -3,6 +3,7 @@
     <div class="chat-header">
       <h3>教学对话</h3>
       <div class="header-actions">
+        <button class="icon-btn"><MessageSquareShare class="share-btn-icon" /></button>
         <button class="icon-btn"><MoreHorizontal class="btn-icon" /></button>
       </div>
     </div>
@@ -88,6 +89,74 @@
                     <div class="progress-step-body">
                       <div class="progress-step-label">{{ step.label }}</div>
                       <div v-if="step.detail" class="progress-step-detail">{{ step.detail }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <template v-else-if="msg.type === 'artifact-trace-group'">
+              <div class="artifact-trace-group">
+                <div class="artifact-trace-group-header">产物生成过程</div>
+                <div class="artifact-trace-card-row">
+                  <div
+                    v-for="card in msg.cards"
+                    :key="card.artifactRunId"
+                    class="artifact-trace-card"
+                    :class="`is-${card.status || 'running'}`"
+                  >
+                    <div class="artifact-trace-card-header">
+                      <div class="artifact-trace-card-title">{{ getArtifactTraceCardTitle(card) }}</div>
+                      <div class="artifact-trace-card-status">
+                        {{ getArtifactTraceStatusLabel(card) }}
+                      </div>
+                    </div>
+
+                    <div class="artifact-trace-card-subtitle">
+                      {{ getArtifactTraceModeLabel(card.mode) }}
+                    </div>
+
+                    <div class="artifact-trace-timeline">
+                      <div
+                        v-for="entry in card.entries"
+                        :key="entry.entryId"
+                        class="artifact-trace-item"
+                        :class="[
+                          `kind-${entry.kind || 'status'}`,
+                          `status-${entry.status || 'idle'}`
+                        ]"
+                      >
+                        <div class="artifact-trace-marker">
+                          <span class="artifact-trace-dot"></span>
+                        </div>
+
+                        <div class="artifact-trace-body">
+                          <div class="artifact-trace-entry-header">
+                            <div class="artifact-trace-entry-title">
+                              {{ entry.title || getArtifactTraceEntryKindLabel(entry.kind) }}
+                            </div>
+                            <button
+                              type="button"
+                              class="artifact-trace-toggle"
+                              :disabled="!canToggleArtifactTraceEntry(entry)"
+                              @click="toggleArtifactTraceEntry(entry)"
+                            >
+                              <ChevronDown
+                                v-if="isArtifactTraceEntryExpanded(entry)"
+                                class="artifact-trace-toggle-icon"
+                              />
+                              <ChevronRight v-else class="artifact-trace-toggle-icon" />
+                              <span>{{ getArtifactTraceToggleLabel(entry) }}</span>
+                            </button>
+                          </div>
+                          <div
+                            v-if="entry.content && isArtifactTraceEntryExpanded(entry)"
+                            class="artifact-trace-entry-content"
+                          >
+                            {{ entry.content }}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -201,19 +270,16 @@
     <div class="chat-footer">
       <transition name="suggestion-fade">
         <div v-if="showSuggestions" class="suggestion-layer">
-          <div class="suggestion-card">
-            <div class="suggestion-title">继续追问</div>
-            <div class="suggestion-list">
-              <button
-                v-for="suggestion in activeSuggestions"
-                :key="suggestion"
-                type="button"
-                class="suggestion-chip"
-                @click="applySuggestion(suggestion)"
-              >
-                {{ suggestion }}
-              </button>
-            </div>
+          <div class="suggestion-list">
+            <button
+              v-for="suggestion in activeSuggestions"
+              :key="suggestion"
+              type="button"
+              class="suggestion-chip"
+              @click="applySuggestion(suggestion)"
+            >
+              {{ suggestion }}
+            </button>
           </div>
         </div>
       </transition>
@@ -317,12 +383,15 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   AlertCircle,
   Bot,
+  ChevronDown,
+  ChevronRight,
   Check,
   FileText,
   LayoutTemplate,
   Loader2,
   MessageSquarePlus,
   Mic,
+  MessageSquareShare,
   MoreHorizontal,
   Paperclip,
   Send,
@@ -361,12 +430,14 @@ const recordingGainNodeRef = ref(null)
 const recordingChunksRef = ref([])
 const recordingSampleRateRef = ref(44100)
 const voiceStatus = ref('idle')
+const voiceTranscriptTypewriterRunId = ref(0)
 const isPinnedToBottom = ref(true)
 const activeSuggestions = ref([])
 const activeSuggestionRunId = ref('')
 const skipSuggestionsForCurrentStream = ref(false)
 
 const AUTO_SCROLL_THRESHOLD = 48
+const VOICE_TRANSCRIPT_TYPE_INTERVAL_MS = 22
 const showSuggestions = computed(() => {
   return activeSuggestions.value.length > 0 && !!activeSuggestionRunId.value
 })
@@ -479,6 +550,52 @@ const createStreamState = (sessionId) => {
     aiMessageIndex: -1,
     hasReceivedToken: false,
     hasReceivedError: false
+  }
+}
+
+const artifactTypeLabels = Object.freeze({
+  ppt: '课件 PPT',
+  docx: 'DOCX 教案',
+  'html-game': 'HTML 互动演示'
+})
+
+const normalizeArtifactTraceText = (value) => {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  return value.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
+}
+
+const isArtifactTraceEntryExpandedByDefault = (kind = 'status') => {
+  if (kind === 'tool_call' || kind === 'tool_result') {
+    return false
+  }
+  return true
+}
+
+const createArtifactTraceEntry = (entry = {}) => {
+  return {
+    entryId: entry?.entry_id || `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    kind: entry?.kind || 'status',
+    title: entry?.title || '',
+    content: normalizeArtifactTraceText(entry?.content || ''),
+    status: entry?.status || '',
+    expanded:
+      typeof entry?.expanded === 'boolean'
+        ? entry.expanded
+        : isArtifactTraceEntryExpandedByDefault(entry?.kind)
+  }
+}
+
+const createArtifactTraceCard = (payload = {}) => {
+  const initialEntry = createArtifactTraceEntry(payload.entry || {})
+  return {
+    artifactRunId: payload?.artifact_run_id || '',
+    artifactType: payload?.artifact_type || '',
+    artifactTitle: payload?.artifact_title || '',
+    mode: payload?.mode || 'create',
+    status: initialEntry.status || 'running',
+    entries: [initialEntry]
   }
 }
 
@@ -860,13 +977,28 @@ const buildVoiceAttachmentName = () => {
   return `voice_${parts.join('')}.wav`
 }
 
+const cancelVoiceTranscriptTypewriter = () => {
+  voiceTranscriptTypewriterRunId.value += 1
+}
+
 const appendTranscriptToInput = async (transcript) => {
   if (!transcript) {
     return
   }
-  inputText.value =
-    inputText.value.trim().length > 0 ? `${inputText.value.trimEnd()}\n${transcript}` : transcript
+
+  cancelVoiceTranscriptTypewriter()
+  const runId = voiceTranscriptTypewriterRunId.value
+  const prefix = inputText.value.trim().length > 0 ? `${inputText.value.trimEnd()}\n` : ''
+  inputText.value = prefix
   await focusInput()
+
+  for (const char of transcript) {
+    if (runId !== voiceTranscriptTypewriterRunId.value) {
+      return
+    }
+    inputText.value += char
+    await new Promise((resolve) => window.setTimeout(resolve, VOICE_TRANSCRIPT_TYPE_INTERVAL_MS))
+  }
 }
 
 const mergeRecordingSamples = (chunks) => {
@@ -1186,6 +1318,132 @@ const ensureAiTextMessage = (streamState, runId = '') => {
   return messages.value[streamState.aiMessageIndex]
 }
 
+const findArtifactTraceGroupIndex = (runId = '') => {
+  if (!runId) {
+    return -1
+  }
+  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+    const message = messages.value[index]
+    if (message?.type === 'artifact-trace-group' && message?.runId === runId) {
+      return index
+    }
+  }
+  return -1
+}
+
+const ensureArtifactTraceGroupMessage = (runId = '') => {
+  const existingIndex = findArtifactTraceGroupIndex(runId)
+  if (existingIndex >= 0) {
+    return messages.value[existingIndex]
+  }
+
+  const message = {
+    role: 'ai',
+    type: 'artifact-trace-group',
+    runId,
+    cards: []
+  }
+  messages.value.push(message)
+  return message
+}
+
+const upsertArtifactTraceEntry = async (streamState, payload) => {
+  if (!isActiveStreamState(streamState) || !payload?.run_id || !payload?.artifact_run_id || !payload?.entry) {
+    return
+  }
+
+  const group = ensureArtifactTraceGroupMessage(payload.run_id)
+  const entry = createArtifactTraceEntry(payload.entry)
+  let card = Array.isArray(group.cards)
+    ? group.cards.find((item) => item?.artifactRunId === payload.artifact_run_id)
+    : null
+
+  if (!card) {
+    if (!Array.isArray(group.cards)) {
+      group.cards = []
+    }
+    card = createArtifactTraceCard(payload)
+    group.cards.push(card)
+  } else {
+    const existingEntryIndex = card.entries.findIndex((item) => item.entryId === entry.entryId)
+    if (existingEntryIndex >= 0) {
+      const previousEntry = card.entries[existingEntryIndex]
+      card.entries[existingEntryIndex] = {
+        ...previousEntry,
+        ...entry,
+        expanded:
+          typeof previousEntry?.expanded === 'boolean'
+            ? previousEntry.expanded
+            : entry.expanded
+      }
+    } else {
+      card.entries.push(entry)
+    }
+    card.artifactType = payload?.artifact_type || card.artifactType
+    card.artifactTitle = payload?.artifact_title || card.artifactTitle
+    card.mode = payload?.mode || card.mode
+  }
+
+  if (entry.status) {
+    card.status = entry.status
+  }
+
+  await scrollToBottom()
+}
+
+const getArtifactTraceCardTitle = (card = {}) => {
+  return card?.artifactTitle || artifactTypeLabels[card?.artifactType] || '产物'
+}
+
+const getArtifactTraceModeLabel = (mode = 'create') => {
+  return mode === 'revise' ? '差量修改过程' : '生成过程'
+}
+
+const getArtifactTraceStatusLabel = (card = {}) => {
+  if (card?.status === 'success') {
+    return card?.mode === 'revise' ? '修改完成' : '生成完成'
+  }
+  if (card?.status === 'failed') {
+    return card?.mode === 'revise' ? '修改失败' : '生成失败'
+  }
+  return card?.mode === 'revise' ? '修改中' : '生成中'
+}
+
+const getArtifactTraceEntryKindLabel = (kind = 'status') => {
+  if (kind === 'tool_call') {
+    return '工具调用'
+  }
+  if (kind === 'tool_result') {
+    return '工具结果'
+  }
+  if (kind === 'ai_message') {
+    return 'AI 输出'
+  }
+  return '状态更新'
+}
+
+const canToggleArtifactTraceEntry = (entry = {}) => {
+  return Boolean(entry?.content)
+}
+
+const isArtifactTraceEntryExpanded = (entry = {}) => {
+  if (!canToggleArtifactTraceEntry(entry)) {
+    return true
+  }
+  return entry?.expanded !== false
+}
+
+const toggleArtifactTraceEntry = (entry) => {
+  if (!canToggleArtifactTraceEntry(entry)) {
+    return
+  }
+  entry.expanded = !isArtifactTraceEntryExpanded(entry)
+}
+
+const getArtifactTraceToggleLabel = (entry = {}) => {
+  return isArtifactTraceEntryExpanded(entry) ? '收起' : '展开'
+}
+
 const shouldRenderMessage = (message) => {
   if (!message) {
     return false
@@ -1364,6 +1622,15 @@ const handleParsedEvent = async (event, data, streamState) => {
     if (payload?.artifact) {
       artifactStore.upsertArtifact(payload.artifact)
     }
+    return false
+  }
+
+  if (event === 'artifact_trace') {
+    const payload = parseJsonPayload(data)
+    if (payload?.run_id) {
+      streamState.runId = payload.run_id
+    }
+    await upsertArtifactTraceEntry(streamState, payload)
     return false
   }
 
@@ -1639,6 +1906,7 @@ watch(
 watch(
   () => activeSessionId.value,
   () => {
+    cancelVoiceTranscriptTypewriter()
     currentAbortController.value?.abort()
     if (isVoiceRecording.value) {
       discardVoiceRecording()
@@ -1651,6 +1919,7 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  cancelVoiceTranscriptTypewriter()
   currentAbortController.value?.abort()
   if (isVoiceRecording.value) {
     discardVoiceRecording()
@@ -1680,6 +1949,8 @@ onBeforeUnmount(() => {
   z-index: 10;
 }
 
+
+
 .chat-header h3 {
   margin: 0;
   font-size: 16px;
@@ -1694,14 +1965,19 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
   padding: 6px;
   border-radius: 6px;
-  display: flex;
-  align-items: center;
+  /* display: flex;
+  align-items: center; */
   transition: background-color 0.2s;
 }
 
 .icon-btn:hover {
   background-color: #f1f5f9;
   color: var(--text-main);
+}
+
+.share-btn-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .btn-icon {
@@ -1715,6 +1991,18 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   background-color: #fcfcfd;
   scroll-behavior: smooth;
+
+  &::-webkit-scrollbar {
+    width: 10px;
+    background: rgba(245,245,245,0.8);
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(73, 61, 206,0.7);
+    border: 2px solid #fff;
+    border-radius: 5px;
+    background-clip: padding-box;
+  }
 }
 
 .placeholder {
@@ -1978,6 +2266,231 @@ onBeforeUnmount(() => {
   line-height: 1.45;
   color: inherit;
   opacity: 0.86;
+}
+
+.artifact-trace-group {
+  width: min(100%, 760px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.artifact-trace-group-header {
+  padding-left: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.artifact-trace-card-row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.artifact-trace-card-row::-webkit-scrollbar {
+  height: 6px;
+}
+
+.artifact-trace-card-row::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.36);
+}
+
+.artifact-trace-card {
+  width: 340px;
+  min-width: 340px;
+  max-width: 340px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.artifact-trace-card.is-success {
+  border-color: rgba(16, 185, 129, 0.24);
+}
+
+.artifact-trace-card.is-failed {
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+.artifact-trace-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.artifact-trace-card-title {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.artifact-trace-card-status {
+  flex-shrink: 0;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(79, 70, 229, 0.08);
+  color: var(--primary-color);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.artifact-trace-card.is-success .artifact-trace-card-status {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+
+.artifact-trace-card.is-failed .artifact-trace-card-status {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+
+.artifact-trace-card-subtitle {
+  font-size: 12px;
+  color: var(--text-disabled);
+}
+
+.artifact-trace-timeline {
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.artifact-trace-timeline::-webkit-scrollbar {
+  width: 6px;
+}
+
+.artifact-trace-timeline::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.32);
+}
+
+.artifact-trace-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.artifact-trace-marker {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.artifact-trace-item:not(:last-child) .artifact-trace-marker::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: -10px;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, rgba(203, 213, 225, 0.95) 0%, rgba(226, 232, 240, 0.7) 100%);
+}
+
+.artifact-trace-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  box-shadow: 0 0 0 4px rgba(226, 232, 240, 0.36);
+}
+
+.artifact-trace-item.kind-ai_message .artifact-trace-dot {
+  background: var(--primary-color);
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.12);
+}
+
+.artifact-trace-item.kind-tool_call .artifact-trace-dot {
+  background: #0f766e;
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+}
+
+.artifact-trace-item.kind-tool_result .artifact-trace-dot {
+  background: #0284c7;
+  box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.12);
+}
+
+.artifact-trace-item.status-success .artifact-trace-dot {
+  background: #10b981;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.12);
+}
+
+.artifact-trace-item.status-failed .artifact-trace-dot {
+  background: #ef4444;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12);
+}
+
+.artifact-trace-body {
+  min-width: 0;
+  padding-bottom: 12px;
+}
+
+.artifact-trace-entry-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.artifact-trace-entry-title {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-main);
+}
+
+.artifact-trace-toggle {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-disabled);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.16s ease;
+}
+
+.artifact-trace-toggle:hover:not(:disabled) {
+  color: var(--text-secondary);
+}
+
+.artifact-trace-toggle:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.artifact-trace-toggle-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.artifact-trace-entry-content {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .approval-card {
@@ -2245,49 +2758,34 @@ onBeforeUnmount(() => {
   position: absolute;
   left: 24px;
   right: 24px;
-  bottom: calc(100% + 14px);
+  bottom: calc(100% + 2px);
   display: flex;
   align-items: flex-end;
-  justify-content: flex-start;
+  justify-content: center;
   pointer-events: none;
   z-index: 30;
 }
 
-.suggestion-card {
-  pointer-events: auto;
-  display: inline-flex;
-  flex-direction: column;
-  gap: 10px;
-  max-width: min(720px, calc(100vw - 80px));
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  background: rgba(255, 255, 255, 0.558);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.1);
-  backdrop-filter: blur(8px);
-}
-
-.suggestion-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
 .suggestion-list {
-  display: flex;
-  flex-wrap: wrap;
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  width: min(860px, 100%);
 }
 
 .suggestion-chip {
   border: 1px solid rgba(148, 163, 184, 0.24);
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.50);
   color: var(--text-secondary);
   border-radius: 999px;
-  padding: 8px 14px;
-  font-size: 13px;
-  line-height: 1.4;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: center;
   cursor: pointer;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease,
@@ -2304,6 +2802,12 @@ onBeforeUnmount(() => {
 
 .suggestion-chip:active {
   transform: translateY(0);
+}
+
+@media (max-width: 900px) {
+  .suggestion-list {
+    grid-template-columns: 1fr;
+  }
 }
 
 .input-container {

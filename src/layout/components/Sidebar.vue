@@ -1,119 +1,476 @@
 <template>
   <div class="sidebar">
     <div class="logo-area">
-      <!-- <div class="logo-icon-wrapper">
-        <MonitorPlay class="logo-icon" />
-      </div> -->
       <span class="logo-text">智课伴侣</span>
+      <PanelLeftClose class="collapse-btn"/>
     </div>
 
     <div class="plan-actions">
-      <button class="new-plan-btn" @click="handleNewPlan">
+      <button type="button" class="new-plan-btn" @click="handleNewPlan">
         <Plus class="btn-icon" />
         新建教学计划
       </button>
+
+      <div class="plan-search-shell">
+        <Search class="search-icon" />
+        <input
+          v-model="planSearchKeyword"
+          type="text"
+          class="plan-search-input"
+          placeholder="搜索教学计划或会话"
+        />
+      </div>
     </div>
 
     <div class="menu-container">
-      <div v-for="plan in plans" :key="plan.id" class="plan-group">
-        <div class="plan-header" @click="togglePlan(plan.id)">
-          <ChevronRight class="toggle-icon" :class="{ 'is-open': openPlans.includes(plan.id) }" />
-          <FolderClosed class="plan-icon" v-if="!openPlans.includes(plan.id)" />
-          <FolderOpen class="plan-icon" v-else />
-          <input 
-            v-if="plan.isEditing"
-            v-model="plan.tempName"
-            v-focus
-            @click.stop
-            @blur="saveNewPlan(plan)"
-            @keyup.enter="saveNewPlan(plan)"
-            class="edit-input"
-          />
-          <template v-else>
-            <span class="plan-name" :title="plan.name">{{ plan.name }}</span>
-            <div class="item-actions">
-              <button class="action-btn" @click.stop="startEditPlan(plan)" title="重命名">
+        <div v-for="plan in plans" :key="plan.id" class="plan-group">
+          <div class="plan-row" :class="{ 'is-editing': plan.isEditing }">
+          <div class="plan-header" @click="handlePlanHeaderClick(plan)">
+            <ChevronRight class="toggle-icon" :class="{ 'is-open': openPlans.includes(plan.id) }" />
+            <FolderClosed v-if="!openPlans.includes(plan.id)" class="plan-icon" />
+            <FolderOpen v-else class="plan-icon" />
+
+            <input
+              v-if="plan.isEditing"
+              v-model="plan.tempName"
+              v-focus
+              class="edit-input"
+              type="text"
+              @click.stop
+              @keyup.enter="saveNewPlan(plan)"
+              @keyup.esc="cancelPlanEdit(plan)"
+            />
+
+            <span v-else class="plan-name" :title="plan.name">{{ plan.name }}</span>
+          </div>
+
+          <div v-if="plan.isEditing" class="item-actions editing-actions">
+            <button
+              type="button"
+              class="action-btn confirm-btn"
+              title="保存"
+              @click.stop.prevent="saveNewPlan(plan)"
+            >
+              <Check class="action-icon" />
+            </button>
+            <button type="button" class="action-btn" title="取消" @click.stop.prevent="cancelPlanEdit(plan)">
+              <X class="action-icon" />
+            </button>
+          </div>
+
+          <div v-else class="item-actions plan-item-actions">
+            <button type="button" class="action-btn" title="重命名" @click.stop.prevent="startEditPlan(plan)">
+              <Pencil class="action-icon" />
+            </button>
+            <button
+              type="button"
+              class="action-btn delete-btn"
+              title="删除"
+              @click.stop.prevent="removePlan(plan)"
+            >
+              <Trash2 class="action-icon" />
+            </button>
+          </div>
+        </div>
+
+        <div v-show="openPlans.includes(plan.id)" class="session-list">
+          <div
+            v-for="session in plan.sessions"
+            :key="session.id"
+            class="session-row"
+            :class="{ 'is-active': activeSessionId === session.id.toString(), 'is-editing': session.isEditing }"
+          >
+            <div class="session-item" @click="handleSessionItemClick(plan, session)">
+              <MessageSquare class="session-icon" />
+
+              <input
+                v-if="session.isEditing"
+                v-model="session.tempName"
+                v-focus
+                class="edit-input"
+                type="text"
+                @click.stop
+                @keyup.enter="saveNewSession(plan, session)"
+                @keyup.esc="cancelSessionEdit(plan, session)"
+              />
+
+              <span v-else class="session-name">{{ session.name }}</span>
+            </div>
+
+            <div v-if="session.isEditing" class="item-actions editing-actions">
+              <button
+                type="button"
+                class="action-btn confirm-btn"
+                title="保存"
+                @click.stop.prevent="saveNewSession(plan, session)"
+              >
+                <Check class="action-icon" />
+              </button>
+              <button
+                type="button"
+                class="action-btn"
+                title="取消"
+                @click.stop.prevent="cancelSessionEdit(plan, session)"
+              >
+                <X class="action-icon" />
+              </button>
+            </div>
+
+            <div v-else class="item-actions session-item-actions">
+              <button
+                type="button"
+                class="action-btn"
+                title="重命名"
+                @click.stop.prevent="startEditSession(session)"
+              >
                 <Pencil class="action-icon" />
               </button>
-              <button class="action-btn delete-btn" @click.stop="removePlan(plan)" title="删除">
+              <button
+                type="button"
+                class="action-btn delete-btn"
+                title="删除"
+                @click.stop.prevent="removeSession(plan, session)"
+              >
                 <Trash2 class="action-icon" />
               </button>
             </div>
-          </template>
-        </div>
-        
-        <div class="session-list" v-show="openPlans.includes(plan.id)">
-          <div 
-            v-for="session in plan.sessions" 
-            :key="session.id" 
-            class="session-item"
-            :class="{ 'is-active': activeSessionId === session.id.toString() }"
-            @click="handleSelectSession(session.id.toString(), plan.id)"
-          >
-            <MessageSquare class="session-icon" />
-            <input
-              v-if="session.isEditing"
-              v-model="session.tempName"
-              v-focus
-              @click.stop
-              @blur="saveNewSession(plan, session)"
-              @keyup.enter="saveNewSession(plan, session)"
-              class="edit-input"
-            />
-            <template v-else>
-              <span class="session-name">{{ session.name }}</span>
-              <div class="item-actions">
-                <button class="action-btn" @click.stop="startEditSession(session)" title="重命名">
-                  <Pencil class="action-icon" />
-                </button>
-                <button class="action-btn delete-btn" @click.stop="removeSession(plan, session)" title="删除">
-                  <Trash2 class="action-icon" />
-                </button>
-              </div>
-            </template>
           </div>
-          
-          <div class="session-item new-session-item" @click="handleSelectSession('new_session_' + plan.id, plan.id)">
+
+          <div class="session-item new-session-item" @click="handleSelectSession(`new_session_${plan.id}`, plan.id)">
             <PlusCircle class="session-icon" />
             <span>新建会话</span>
           </div>
         </div>
       </div>
     </div>
+
+    <div class="sidebar-footer">
+      <Transition name="account-sheet">
+        <div v-if="isAccountDrawerVisible" class="account-drawer">
+          <div class="drawer-header">
+            <span>切换账户</span>
+            <span class="drawer-caption"><LogOut class="log-out"/></span>
+          </div>
+
+          <button
+            type="button"
+            v-for="account in mockAccounts"
+            :key="account.id"
+            class="account-row"
+            :class="{ 'is-active': account.id === activeAccountId }"
+            @click="switchAccount(account.id)"
+          >
+            <div class="account-avatar" :style="{ background: account.avatarGradient }">
+              {{ getAccountInitials(account.name) }}
+            </div>
+            <div class="account-meta">
+              <div class="account-name-line">
+                <span class="account-name">{{ account.name }}</span>
+                <span v-if="account.id === activeAccountId" class="active-pill">当前</span>
+              </div>
+              <div class="account-subtitle">{{ account.email }}</div>
+            </div>
+          </button>
+
+          <button type="button" class="add-account-btn" @click="addMockAccount">
+            <UserPlus class="drawer-icon" />
+            添加新账户
+          </button>
+        </div>
+      </Transition>
+
+      <div class="user-bar">
+        <button type="button" class="user-entry" @click="toggleAccountDrawer">
+          <div class="user-avatar" :style="{ background: currentAccount.avatarGradient }">
+            {{ getAccountInitials(currentAccount.name) }}
+          </div>
+          <div class="user-meta">
+            <span class="user-name">{{ currentAccount.name }}</span>
+            <span class="user-role">{{ currentAccount.role }}</span>
+          </div>
+          <ChevronUp class="user-chevron" :class="{ 'is-open': isAccountDrawerVisible }" />
+        </button>
+
+        <button type="button" class="settings-trigger" title="设置" @click.stop="openSettingsPanel">
+          <Settings2 class="settings-icon" />
+        </button>
+      </div>
+    </div>
+
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="isSettingsVisible" class="settings-overlay" @click.self="closeSettingsPanel">
+          <div class="settings-modal">
+            <div class="settings-header">
+              <div>
+                <h3>系统设置</h3>
+                <p>以下内容为前端 mock 展示，用于预览后续设置面板形态。</p>
+              </div>
+              <button type="button" class="settings-close-btn" @click="closeSettingsPanel">
+                <X class="settings-close-icon" />
+              </button>
+            </div>
+
+            <div class="settings-body">
+              <aside class="settings-nav">
+                <button
+                  type="button"
+                  v-for="section in settingsSections"
+                  :key="section.key"
+                  class="settings-nav-item"
+                  :class="{ 'is-active': activeSettingsSection === section.key }"
+                  @click="activeSettingsSection = section.key"
+                >
+                  <component :is="section.icon" class="settings-nav-icon" />
+                  <span>{{ section.label }}</span>
+                </button>
+              </aside>
+
+              <section class="settings-content">
+                <template v-if="activeSettingsSection === 'account'">
+                  <div class="settings-card hero-card">
+                    <div>
+                      <div class="card-eyebrow">账户与安全</div>
+                      <h4>{{ currentAccount.name }}</h4>
+                      <p>用于展示账户概览、登录设备、密码与双重验证等配置入口。</p>
+                    </div>
+                    <div class="hero-badge">Mock</div>
+                  </div>
+
+                  <div class="settings-grid">
+                    <div class="settings-card">
+                      <h5>当前登录账户</h5>
+                      <p>{{ currentAccount.email }}</p>
+                      <span class="card-note">角色：{{ currentAccount.role }}</span>
+                    </div>
+                    <div class="settings-card">
+                      <h5>最近登录设备</h5>
+                      <p>Windows · Edge 浏览器</p>
+                      <span class="card-note">上次活跃：刚刚</span>
+                    </div>
+                    <div class="settings-card">
+                      <h5>安全建议</h5>
+                      <p>开启双重验证、设置恢复邮箱、定期检查设备列表。</p>
+                    </div>
+                  </div>
+                </template>
+
+                <template v-else-if="activeSettingsSection === 'privacy'">
+                  <div class="settings-card hero-card soft-card">
+                    <div>
+                      <div class="card-eyebrow">隐私政策</div>
+                      <h4>数据使用说明</h4>
+                      <p>这里预留隐私政策、数据保留时长、导出与删除说明等内容展示位。</p>
+                    </div>
+                  </div>
+
+                  <div class="settings-stack">
+                    <div class="settings-card">
+                      <h5>数据授权范围</h5>
+                      <p>展示课堂资料、会话记录、产物与多模态附件的处理授权说明。</p>
+                    </div>
+                    <div class="settings-card">
+                      <h5>导出与删除</h5>
+                      <p>后续可放置导出教学计划、清理历史会话、知识库删除等入口。</p>
+                    </div>
+                  </div>
+                </template>
+
+                <template v-else-if="activeSettingsSection === 'appearance'">
+                  <div class="settings-card hero-card warm-card">
+                    <div>
+                      <div class="card-eyebrow">外观设置</div>
+                      <h4>界面主题与布局</h4>
+                      <p>用于演示主题切换、字号、边栏宽度与消息显示偏好的设置区块。</p>
+                    </div>
+                  </div>
+
+                  <div class="settings-grid">
+                    <div class="settings-card option-card">
+                      <span class="option-label">主题模式</span>
+                      <div class="option-pills">
+                        <span class="option-pill is-active">浅色</span>
+                        <span class="option-pill">深色</span>
+                        <span class="option-pill">跟随系统</span>
+                      </div>
+                    </div>
+                    <div class="settings-card option-card">
+                      <span class="option-label">阅读密度</span>
+                      <div class="option-pills">
+                        <span class="option-pill">紧凑</span>
+                        <span class="option-pill is-active">舒适</span>
+                        <span class="option-pill">宽松</span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <template v-else-if="activeSettingsSection === 'models'">
+                  <div class="settings-card hero-card tech-card">
+                    <div>
+                      <div class="card-eyebrow">大模型配置</div>
+                      <h4>教学智能体模型编排</h4>
+                      <p>这里预留对话模型、Embedding、视觉模型、语音模型等配置项。</p>
+                    </div>
+                    <div class="hero-badge">实验性</div>
+                  </div>
+
+                  <div class="settings-stack">
+                    <div class="settings-card">
+                      <h5>对话模型</h5>
+                      <p>GPT-4.1 / GPT-4o / 自定义 OpenAI 兼容接口</p>
+                      <span class="card-note">后续接入真实配置表单与环境校验。</span>
+                    </div>
+                    <div class="settings-card">
+                      <h5>检索与嵌入</h5>
+                      <p>Embedding 模型、向量维度、召回数量与重排策略。</p>
+                    </div>
+                    <div class="settings-card">
+                      <h5>多模态能力</h5>
+                      <p>视频理解、语音转写、文档生成与技能路由等高级配置入口。</p>
+                    </div>
+                  </div>
+                </template>
+              </section>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { MonitorPlay, Plus, FolderClosed, FolderOpen, ChevronRight, MessageSquare, PlusCircle, Palmtree, Pencil, Trash2 } from 'lucide-vue-next'
-import { getPlanAndSessionListAPI, addPlanAPI, updateSessionAPI, deleteSessionAPI, addSessionAPI, updatePlanAPI, deletePlanAPI } from '@/api/session'
-import { useSessionStore } from '@/store/session'
-import { storeToRefs } from 'pinia'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import {
+  Bot,
+  Check,
+  LogOut,
+  ChevronRight,
+  ChevronUp,
+  PanelLeftClose,
+  FileLock2,
+  FolderClosed,
+  FolderOpen,
+  MessageSquare,
+  Palette,
+  Pencil,
+  Plus,
+  PlusCircle,
+  Search,
+  Settings2,
+  ShieldCheck,
+  Trash2,
+  UserPlus,
+  X,
+} from "lucide-vue-next"
+import { ElMessage } from "element-plus"
+
+import {
+  addPlanAPI,
+  addSessionAPI,
+  deletePlanAPI,
+  deleteSessionAPI,
+  getPlanAndSessionListAPI,
+  updatePlanAPI,
+  updateSessionAPI,
+} from "@/api/session"
+import { useSessionStore } from "@/store/session"
+import { storeToRefs } from "pinia"
 
 const vFocus = {
   mounted: (el) => {
-    el.focus()
-    el.select()
-  }
+    requestAnimationFrame(() => {
+      if (!document.contains(el)) {
+        return
+      }
+      el.focus()
+      if (typeof el.select === "function") {
+        el.select()
+      }
+    })
+  },
 }
 
+const mockAccounts = ref([
+  {
+    id: "teacher-1",
+    name: "陈老师",
+    role: "初中物理教师",
+    email: "chen.teacher@smartclass.mock",
+    avatarGradient: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+  },
+  {
+    id: "teacher-2",
+    name: "王老师",
+    role: "教研组成员",
+    email: "wang.research@smartclass.mock",
+    avatarGradient: "linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)",
+  },
+  {
+    id: "admin-1",
+    name: "教学平台主管",
+    role: "管理员",
+    email: "admin@smartclass.mock",
+    avatarGradient: "linear-gradient(135deg, #f97316 0%, #ef4444 100%)",
+  },
+])
+
+const settingsSections = [
+  { key: "account", label: "账户与安全", icon: ShieldCheck },
+  { key: "privacy", label: "隐私政策", icon: FileLock2 },
+  { key: "appearance", label: "外观设置", icon: Palette },
+  { key: "models", label: "大模型配置", icon: Bot },
+]
+
 const plans = ref([])
+const planSearchKeyword = ref("")
+const openPlans = ref([1])
+const activeAccountId = ref(mockAccounts.value[0].id)
+const isAccountDrawerVisible = ref(false)
+const isSettingsVisible = ref(false)
+const activeSettingsSection = ref("account")
 
 const sessionStore = useSessionStore()
 const { activeSessionId } = storeToRefs(sessionStore)
-const openPlans = ref([1])
+
+const currentAccount = computed(
+  () => mockAccounts.value.find((account) => account.id === activeAccountId.value) || mockAccounts.value[0]
+)
+
+watch(isSettingsVisible, (visible) => {
+  document.body.style.overflow = visible ? "hidden" : ""
+  if (visible) {
+    isAccountDrawerVisible.value = false
+  }
+})
 
 onMounted(() => {
   getPlanAndSessionList()
+})
+
+onBeforeUnmount(() => {
+  document.body.style.overflow = ""
 })
 
 const togglePlan = (id) => {
   const index = openPlans.value.indexOf(id)
   if (index > -1) {
     openPlans.value.splice(index, 1)
-  } else {
-    openPlans.value.push(id)
+    return
   }
+  openPlans.value.push(id)
+}
+
+const isTempPlan = (plan) => typeof plan.id === "string" && plan.id.startsWith("temp_")
+
+const isTempSession = (session) => typeof session.id === "string" && session.id.startsWith("temp_")
+
+const handlePlanHeaderClick = (plan) => {
+  if (plan.isEditing) {
+    return
+  }
+  togglePlan(plan.id)
 }
 
 const startEditPlan = (plan) => {
@@ -121,57 +478,107 @@ const startEditPlan = (plan) => {
   plan.isEditing = true
 }
 
+const cancelPlanEdit = (plan) => {
+  if (!plan.isEditing) {
+    return
+  }
+
+  if (isTempPlan(plan)) {
+    const planIndex = plans.value.findIndex((item) => item.id === plan.id)
+    if (planIndex > -1) {
+      plans.value.splice(planIndex, 1)
+    }
+
+    const openIndex = openPlans.value.indexOf(plan.id)
+    if (openIndex > -1) {
+      openPlans.value.splice(openIndex, 1)
+    }
+    return
+  }
+
+  plan.tempName = plan.name
+  plan.isEditing = false
+}
+
 const startEditSession = (session) => {
   session.tempName = session.name
   session.isEditing = true
 }
 
+const cancelSessionEdit = (plan, session) => {
+  if (!session.isEditing) {
+    return
+  }
+
+  if (isTempSession(session)) {
+    const sessionIndex = plan.sessions.findIndex((item) => item.id === session.id)
+    if (sessionIndex > -1) {
+      plan.sessions.splice(sessionIndex, 1)
+    }
+    return
+  }
+
+  session.tempName = session.name
+  session.isEditing = false
+}
+
 const removePlan = async (plan) => {
+  const confirmed = window.confirm("确定要删除该教学计划吗？同时会删除其所有会话内容。")
+  if (!confirmed) {
+    return
+  }
+
   try {
-    await ElMessageBox.confirm(
-      '确定要删除该教学计划吗？同时会删除其所有会话内容。',
-      '删除确认',
-      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
-    )
     await deletePlanAPI(plan.id)
-    const index = plans.value.findIndex(p => p.id === plan.id)
-    if (index > -1) plans.value.splice(index, 1)
-    ElMessage.success('删除成功')
-  } catch (err) {
-    if (err !== 'cancel') console.error('删除计划失败', err)
+    const index = plans.value.findIndex((item) => item.id === plan.id)
+    if (index > -1) {
+      plans.value.splice(index, 1)
+    }
+    ElMessage.success("删除成功")
+  } catch (error) {
+    if (error !== "cancel") {
+      console.error("删除计划失败", error)
+    }
   }
 }
 
 const removeSession = async (plan, session) => {
   try {
-    console.log('点击删除按钮')
     await ElMessageBox.confirm(
-      '确定要删除该会话吗？',
-      '删除确认',
-      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+      "确定要删除该教学计划吗？同时会删除其所有会话内容。",
+      "删除确认",
+      {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning",
+      }
     )
-    console.log('发起删除请求')
+
+
     await deleteSessionAPI(session.id)
-    const index = plan.sessions.findIndex(s => s.id === session.id)
-    if (index > -1) plan.sessions.splice(index, 1)
-    
-    // Switch active session if current is deleted
-    if (activeSessionId.value === session.id.toString()) {
-      sessionStore.setActiveSession('', '', plan.id)
+    const index = plan.sessions.findIndex((item) => item.id === session.id)
+    if (index > -1) {
+      plan.sessions.splice(index, 1)
     }
-    ElMessage.success('删除成功')
-  } catch (err) {
-    if (err !== 'cancel') console.error('删除会话失败', err)
+
+    if (activeSessionId.value === session.id.toString()) {
+      sessionStore.setActiveSession("", "", plan.id)
+    }
+    ElMessage.success("删除成功")
+  } catch (error) {
+    if (error !== "cancel") {
+      console.error("删除会话失败", error)
+    }
   }
 }
 
 const handleNewPlan = () => {
   const newPlan = {
-    id: 'temp_plan_' + Date.now(),
+    id: `temp_plan_${Date.now()}`,
     name: "新计划",
     tempName: "新计划",
     sessions: [],
-    isEditing: true
+    isEditing: true,
   }
   plans.value.unshift(newPlan)
   if (!openPlans.value.includes(newPlan.id)) {
@@ -180,112 +587,181 @@ const handleNewPlan = () => {
 }
 
 const saveNewPlan = async (plan) => {
-  if (!plan.isEditing) return
-  plan.isEditing = false
-  const newName = plan.tempName?.trim() || plan.name
-  if (!newName) return
-  
-  const isNew = typeof plan.id === 'string' && plan.id.startsWith('temp_')
-  plan.name = newName
-  
+  if (!plan.isEditing) {
+    return
+  }
+
+  const newName = plan.tempName?.trim()
+  if (!newName) {
+    ElMessage.warning("教学计划名称不能为空")
+    return
+  }
+
+  const isNew = isTempPlan(plan)
+  if (!isNew && newName === plan.name) {
+    plan.isEditing = false
+    return
+  }
+
   if (isNew) {
     const oldId = plan.id
     try {
-      const res = await addPlanAPI({ name: plan.name })
-      if (res.data?.id) plan.id = res.data.id
-      
+      const res = await addPlanAPI({ name: newName })
+      if (res.data?.id) {
+        plan.id = res.data.id
+      }
+
+      plan.name = newName
+      plan.tempName = newName
+      plan.isEditing = false
+
       const openIndex = openPlans.value.indexOf(oldId)
-      if (openIndex > -1) openPlans.value[openIndex] = plan.id
-    } catch (error) { console.error('新建教学计划失败', error) }
-  } else {
-    try {
-      await updatePlanAPI({ id: plan.id, name: plan.name })
-      ElMessage.success('重命名成功')
-    } catch (error) { console.error('重命名计划失败', error) }
+      if (openIndex > -1) {
+        openPlans.value[openIndex] = plan.id
+      }
+    } catch (error) {
+      console.error("新建教学计划失败", error)
+      ElMessage.error("新建教学计划失败")
+    }
+    return
+  }
+
+  try {
+    await updatePlanAPI({ id: plan.id, name: newName })
+    plan.name = newName
+    plan.tempName = newName
+    plan.isEditing = false
+    ElMessage.success("重命名成功")
+  } catch (error) {
+    console.error("重命名计划失败", error)
+    ElMessage.error("重命名计划失败")
   }
 }
 
 const handleSelectSession = (index, planId) => {
-  if (index?.startsWith('new_session_')) {
+  if (index?.startsWith("new_session_")) {
     handleNewSession(planId)
     return
   }
-  
-  let targetThreadId = ''
+
+  let targetThreadId = ""
   for (const plan of plans.value) {
-    if (!plan.sessions) continue
-    const session = plan.sessions.find(s => s.id.toString() === index.toString())
+    if (!plan.sessions) {
+      continue
+    }
+    const session = plan.sessions.find((item) => item.id.toString() === index.toString())
     if (session) {
-      targetThreadId = session.thread_id || ''
+      targetThreadId = session.thread_id || ""
       break
     }
   }
-  
+
   sessionStore.setActiveSession(index, targetThreadId, planId)
 }
 
 const handleNewSession = (planId) => {
-  const plan = plans.value.find(p => p.id === planId)
-  if (!plan) return
-  
+  const targetPlan = plans.value.find((plan) => plan.id === planId)
+  if (!targetPlan) {
+    return
+  }
+
   const newSession = {
-    id: 'temp_session_' + Date.now(),
+    id: `temp_session_${Date.now()}`,
     name: "新会话",
     tempName: "新会话",
-    isEditing: true
+    isEditing: true,
   }
-  
-  if (!plan.sessions) {
-    plan.sessions = []
+
+  if (!targetPlan.sessions) {
+    targetPlan.sessions = []
   }
-  plan.sessions.unshift(newSession)
+  targetPlan.sessions.unshift(newSession)
+}
+
+const handleSessionItemClick = (plan, session) => {
+  if (session.isEditing) {
+    return
+  }
+  handleSelectSession(session.id.toString(), plan.id)
 }
 
 const saveNewSession = async (plan, session) => {
-  if (!session.isEditing) return
-  session.isEditing = false
-  const newName = session.tempName?.trim() || session.name
-  if (!newName) return
-  
-  const isNew = typeof session.id === 'string' && session.id.startsWith('temp_')
-  session.name = newName
-  
+  if (!session.isEditing) {
+    return
+  }
+
+  const newName = session.tempName?.trim()
+  if (!newName) {
+    ElMessage.warning("会话名称不能为空")
+    return
+  }
+
+  const isNew = isTempSession(session)
+  if (!isNew && newName === session.name) {
+    session.isEditing = false
+    return
+  }
+
   if (isNew) {
     try {
-      const res = await addSessionAPI({ plan_id: plan.id, name: session.name })
-      if (res.data?.id) session.id = res.data.id
-      if (res.data?.thread_id) session.thread_id = res.data.thread_id
-      sessionStore.setActiveSession(session.id.toString(), session.thread_id || '', plan.id)
-    } catch (error) { console.error('新建会话失败', error) }
-  } else {
-    try {
-      await updateSessionAPI(session)
-      ElMessage.success('重命名成功')
-    } catch (error) { console.error('重命名会话失败', error) }
+      const res = await addSessionAPI({ plan_id: plan.id, name: newName })
+      if (res.data?.id) {
+        session.id = res.data.id
+      }
+      if (res.data?.thread_id) {
+        session.thread_id = res.data.thread_id
+      }
+      session.name = newName
+      session.tempName = newName
+      session.isEditing = false
+      sessionStore.setActiveSession(session.id.toString(), session.thread_id || "", plan.id)
+    } catch (error) {
+      console.error("新建会话失败", error)
+      ElMessage.error("新建会话失败")
+    }
+    return
+  }
+
+  try {
+    await updateSessionAPI({ ...session, name: newName })
+    session.name = newName
+    session.tempName = newName
+    session.isEditing = false
+    ElMessage.success("重命名成功")
+  } catch (error) {
+    console.error("重命名会话失败", error)
+    ElMessage.error("重命名会话失败")
   }
 }
 
 const getPlanAndSessionList = async () => {
   try {
     const res = await getPlanAndSessionListAPI()
-    console.log('获取教学计划和会话列表', res)
     if (res.data) {
       plans.value = res.data
-      
+
       if (!activeSessionId.value && res.data.length > 0 && res.data[0].sessions?.length > 0) {
-        // If no active session, optionally select the first one
         const firstSession = res.data[0].sessions[0]
-        sessionStore.setActiveSession(firstSession.id.toString(), firstSession.thread_id || '', res.data[0].id)
-        openPlans.value.push(res.data[0].id)
+        sessionStore.setActiveSession(
+          firstSession.id.toString(),
+          firstSession.thread_id || "",
+          res.data[0].id
+        )
+        if (!openPlans.value.includes(res.data[0].id)) {
+          openPlans.value.push(res.data[0].id)
+        }
       } else if (activeSessionId.value) {
-        // Sync thread_id for initially hardcoded active session
-        let targetThreadId = ''
-        let targetPlanId = ''
+        let targetThreadId = ""
+        let targetPlanId = ""
         for (const plan of plans.value) {
-          if (!plan.sessions) continue
-          const session = plan.sessions.find(s => s.id.toString() === activeSessionId.value.toString())
+          if (!plan.sessions) {
+            continue
+          }
+          const session = plan.sessions.find(
+            (item) => item.id.toString() === activeSessionId.value.toString()
+          )
           if (session) {
-            targetThreadId = session.thread_id || ''
+            targetThreadId = session.thread_id || ""
             targetPlanId = plan.id
             break
           }
@@ -294,11 +770,47 @@ const getPlanAndSessionList = async () => {
       }
     }
   } catch (error) {
-    console.error('获取教学计划和会话列表失败', error)
+    console.error("获取教学计划和会话列表失败", error)
   }
 }
 
+const getAccountInitials = (name) => {
+  return (name || "用户").trim().slice(0, 2).toUpperCase()
+}
 
+const toggleAccountDrawer = () => {
+  isAccountDrawerVisible.value = !isAccountDrawerVisible.value
+}
+
+const switchAccount = (accountId) => {
+  activeAccountId.value = accountId
+  isAccountDrawerVisible.value = false
+  ElMessage.success("已切换为演示账户")
+}
+
+const addMockAccount = () => {
+  const nextIndex = mockAccounts.value.length + 1
+  const newAccount = {
+    id: `mock-${Date.now()}`,
+    name: `新账户 ${nextIndex}`,
+    role: "待配置身份",
+    email: `new-account-${nextIndex}@smartclass.mock`,
+    avatarGradient: "linear-gradient(135deg, #2563eb 0%, #06b6d4 100%)",
+  }
+  mockAccounts.value.unshift(newAccount)
+  activeAccountId.value = newAccount.id
+  isAccountDrawerVisible.value = false
+  ElMessage.info("已添加 mock 账户，当前仅作展示")
+}
+
+const openSettingsPanel = () => {
+  activeSettingsSection.value = "account"
+  isSettingsVisible.value = true
+}
+
+const closeSettingsPanel = () => {
+  isSettingsVisible.value = false
+}
 </script>
 
 <style scoped>
@@ -306,40 +818,49 @@ const getPlanAndSessionList = async () => {
   display: flex;
   flex-direction: column;
   height: 100%;
+  position: relative;
 }
 
 .logo-area {
   height: var(--header-height);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 20px;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-main);
   border-bottom: 1px solid var(--border-color);
 }
-.logo-icon-wrapper {
-  background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
-  border-radius: 8px;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 10px;
-  box-shadow: var(--shadow-sm);
+
+.logo-text {
+  letter-spacing: 0.02em;
 }
-.logo-icon {
-  width: 18px;
-  height: 18px;
-  color: white;
+
+.collapse-btn {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 6px;
+  border-radius: 6px;
+  transition: background-color 0.2s;
+}
+
+.collapse-btn:hover {
+  background-color: #f1f5f9;
+  color: var(--text-main);
 }
 
 .plan-actions {
   padding: 16px 20px;
 }
+
 .new-plan-btn {
   width: 100%;
-  border-radius: var(--border-radius);
+  border-radius: 80px;/*var(--border-radius);*/
   background-color: var(--primary-color);
   color: white;
   border: none;
@@ -353,31 +874,93 @@ const getPlanAndSessionList = async () => {
   transition: all 0.2s ease;
   box-shadow: var(--shadow-sm);
 }
+
 .new-plan-btn:hover {
   background-color: var(--primary-hover);
   box-shadow: var(--shadow-md);
   transform: translateY(-1px);
 }
+
 .btn-icon {
   width: 16px;
   height: 16px;
   margin-right: 6px;
 }
 
+.plan-search-shell {
+  position: relative;
+  margin-top: 12px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  color: var(--text-disabled);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.plan-search-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 12px 0 36px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-main);
+  font-size: 12px;
+  outline: none;
+  transition: all 0.2s ease;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.plan-search-input::placeholder {
+  color: var(--text-disabled);
+}
+
+.plan-search-input:focus {
+  border-color: rgba(79, 70, 229, 0.35);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.08);
+}
+
 .menu-container {
   flex: 1;
   overflow-y: auto;
-  padding: 0 12px;
+  padding: 0 12px 12px;
+
+  /* &::-webkit-scrollbar {
+    width: 10px;
+    background: rgba(245,245,245,0.8);
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(73, 61, 206,0.6);
+    border: 2px solid #fff;
+    border-radius: 5px;
+    background-clip: padding-box;
+  } */
 }
 
 .plan-group {
   margin-bottom: 4px;
 }
 
+.plan-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .plan-header {
   display: flex;
   align-items: center;
   height: 36px;
+  flex: 1;
+  min-width: 0;
   padding: 0 8px;
   border-radius: 6px;
   cursor: pointer;
@@ -386,9 +969,11 @@ const getPlanAndSessionList = async () => {
   font-size: 13px;
   transition: background-color 0.15s ease;
 }
+
 .plan-header:hover {
-  background-color: #e2e8f080;
+  background-color: rgba(226, 232, 240, 0.5);
 }
+
 .toggle-icon {
   width: 14px;
   height: 14px;
@@ -396,15 +981,18 @@ const getPlanAndSessionList = async () => {
   color: var(--text-disabled);
   transition: transform 0.2s ease;
 }
+
 .toggle-icon.is-open {
   transform: rotate(90deg);
 }
+
 .plan-icon {
   width: 16px;
   height: 16px;
   margin-right: 8px;
   color: var(--text-secondary);
 }
+
 .plan-name {
   flex: 1;
   overflow: hidden;
@@ -416,8 +1004,8 @@ const getPlanAndSessionList = async () => {
   flex: 1;
   width: 100%;
   height: 24px;
-  background-color: var(--bg-main, #fff);
-  border: 1px solid var(--primary-color, #3b82f6);
+  background-color: var(--bg-main);
+  border: 1px solid var(--primary-color);
   border-radius: 4px;
   padding: 0 6px;
   font-size: 13px;
@@ -425,8 +1013,9 @@ const getPlanAndSessionList = async () => {
   outline: none;
   font-family: inherit;
 }
+
 .edit-input:focus {
-  border-color: var(--primary-hover, #2563eb);
+  border-color: var(--primary-hover);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
@@ -436,10 +1025,18 @@ const getPlanAndSessionList = async () => {
   margin-bottom: 8px;
 }
 
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .session-item {
   display: flex;
   align-items: center;
   height: 34px;
+  flex: 1;
+  min-width: 0;
   padding: 0 10px;
   border-radius: 6px;
   cursor: pointer;
@@ -448,6 +1045,7 @@ const getPlanAndSessionList = async () => {
   margin-bottom: 2px;
   transition: all 0.15s ease;
 }
+
 .session-icon {
   width: 14px;
   height: 14px;
@@ -456,30 +1054,53 @@ const getPlanAndSessionList = async () => {
 }
 
 .session-item:hover {
-  background-color: #e2e8f080;
+  background-color: rgba(226, 232, 240, 0.5);
   color: var(--text-main);
 }
-.session-item.is-active {
-  background-color: #e0e7ff; /* light indigo */
+
+.session-row.is-active .session-item {
+  background-color: #e0e7ff;
   color: var(--primary-hover);
   font-weight: 500;
 }
-.session-item.is-active .session-icon {
+
+.session-row.is-active .session-icon {
   opacity: 1;
   color: var(--primary-color);
 }
 
+.session-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .item-actions {
   display: flex;
-  opacity: 0;
-  transition: opacity 0.2s ease;
   align-items: center;
   gap: 2px;
-  margin-left: auto;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  position: relative;
+  z-index: 1;
 }
-.plan-header:hover .item-actions,
-.session-item:hover .item-actions {
+
+.plan-row:hover .item-actions,
+.session-row:hover .item-actions {
   opacity: 1;
+  transform: translateX(-1px);
+}
+
+.plan-row.is-editing .item-actions,
+.session-row.is-editing .item-actions {
+  opacity: 1;
+  transform: none;
+}
+
+.editing-actions {
+  gap: 4px;
 }
 
 .action-btn {
@@ -488,20 +1109,32 @@ const getPlanAndSessionList = async () => {
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.15s;
 }
+
+.confirm-btn {
+  color: #0f766e;
+}
+
+.confirm-btn:hover {
+  background-color: #ccfbf1;
+  color: #0f766e;
+}
+
 .action-btn:hover {
   background-color: #e2e8f0;
-  color: var(--primary-color, #3b82f6);
+  color: var(--primary-color);
 }
+
 .action-btn.delete-btn:hover {
   background-color: #fee2e2;
   color: #ef4444;
 }
+
 .action-icon {
   width: 14px;
   height: 14px;
@@ -510,11 +1143,558 @@ const getPlanAndSessionList = async () => {
 .new-session-item {
   color: var(--text-disabled);
 }
+
 .new-session-item:hover {
   color: var(--primary-color);
   background-color: transparent;
 }
+
 .new-session-item .session-icon {
   opacity: 1;
+}
+
+.sidebar-footer {
+  position: relative;
+  padding: 12px 14px 14px;
+  /* border-top: 1px solid rgba(226, 232, 240, 0.9); */
+  background:
+    linear-gradient(180deg, rgba(248, 250, 252, 0.2) 0%, rgba(255, 255, 255, 0.96) 28%),
+    var(--bg-sidebar);
+}
+
+.user-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: 0 10px 18px -16px rgba(15, 23, 42, 0.45);
+}
+
+.user-entry {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.user-avatar,
+.account-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 10px 16px -12px rgba(15, 23, 42, 0.5);
+}
+
+.user-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.user-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-role {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--text-disabled);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.user-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.settings-trigger {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: #f8fafc;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.settings-trigger:hover {
+  background: #eef2ff;
+  color: var(--primary-color);
+  border-color: rgba(165, 180, 252, 0.9);
+}
+
+.settings-icon {
+  width: 17px;
+  height: 17px;
+}
+
+.account-drawer {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: calc(100% + 10px);
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 22px 40px -28px rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(12px);
+  z-index: 4;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.drawer-caption {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-disabled);
+}
+
+.log-out {
+  width: 17px;
+  height: 17px;
+}
+
+.account-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  margin-bottom: 6px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: #f8fafc;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.account-row:hover {
+  border-color: rgba(199, 210, 254, 0.95);
+  background: #eef2ff;
+}
+
+.account-row.is-active {
+  border-color: rgba(129, 140, 248, 0.9);
+  background: linear-gradient(180deg, #eef2ff 0%, #e8edff 100%);
+}
+
+.account-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  flex-shrink: 0;
+}
+
+.account-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.account-name-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-subtitle {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.active-pill {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(79, 70, 229, 0.12);
+  color: var(--primary-color);
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.add-account-btn {
+  width: 100%;
+  margin-top: 4px;
+  height: 38px;
+  border: 1px dashed rgba(148, 163, 184, 0.65);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.add-account-btn:hover {
+  border-color: rgba(79, 70, 229, 0.4);
+  color: var(--primary-color);
+  background: rgba(238, 242, 255, 0.65);
+}
+
+.drawer-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.58);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-modal {
+  width: min(1100px, 92vw);
+  height: min(760px, 90vh);
+  background: #ffffff;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+}
+
+.settings-header {
+  min-height: 68px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  background-color: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.settings-header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.settings-close-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.settings-close-btn:hover {
+  background: #e2e8f0;
+  color: #ef4444;
+}
+
+.settings-close-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 0;
+  background: linear-gradient(180deg, #fbfcff 0%, #f8fafc 100%);
+}
+
+.settings-nav {
+  padding: 18px 14px;
+  border-right: 1px solid var(--border-color);
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.settings-nav-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.18s ease;
+}
+
+.settings-nav-item:hover {
+  background: rgba(226, 232, 240, 0.65);
+  color: var(--text-main);
+}
+
+.settings-nav-item.is-active {
+  background: linear-gradient(180deg, #eef2ff 0%, #e5eaff 100%);
+  color: var(--primary-color);
+  box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.25);
+}
+
+.settings-nav-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.settings-content {
+  overflow-y: auto;
+  padding: 22px;
+}
+
+.settings-card {
+  border-radius: 16px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: rgba(255, 255, 255, 0.95);
+  padding: 18px;
+  box-shadow: 0 10px 18px -18px rgba(15, 23, 42, 0.5);
+}
+
+.settings-card h4,
+.settings-card h5 {
+  margin: 0;
+  color: var(--text-main);
+}
+
+.settings-card h4 {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.settings-card h5 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-card p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.card-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary-color);
+  margin-bottom: 10px;
+}
+
+.hero-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+  background: linear-gradient(135deg, #f6f8ff 0%, #ffffff 100%);
+}
+
+.soft-card {
+  background: linear-gradient(135deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.warm-card {
+  background: linear-gradient(135deg, #fff8ef 0%, #ffffff 100%);
+}
+
+.tech-card {
+  background: linear-gradient(135deg, #eef6ff 0%, #ffffff 100%);
+}
+
+.hero-badge {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(79, 70, 229, 0.12);
+  color: var(--primary-color);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.settings-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.card-note {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-disabled);
+}
+
+.option-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.option-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.option-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.option-pill {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.option-pill.is-active {
+  background: rgba(79, 70, 229, 0.12);
+  color: var(--primary-color);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.fade-enter-active .settings-modal,
+.fade-leave-active .settings-modal {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fade-enter-from .settings-modal,
+.fade-leave-to .settings-modal {
+  transform: scale(0.98) translateY(10px);
+}
+
+.account-sheet-enter-active,
+.account-sheet-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.account-sheet-enter-from,
+.account-sheet-leave-to {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+@media (max-width: 960px) {
+  .settings-body {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-nav {
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .settings-nav-item {
+    margin-bottom: 0;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

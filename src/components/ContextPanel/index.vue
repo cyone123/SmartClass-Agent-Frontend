@@ -12,6 +12,13 @@
           <span class="badge">{{ artifacts.length }}</span>
         </div>
 
+        <div class="knowledge-upload-tip">
+          <div class="tip-title">支持生成PPT、DOCX教案、HTML5互动教学文件</div>
+          <div class="tip-detail">
+             生成后的文件支持在线预览与编辑导出，或让AI继续修改。
+          </div>
+        </div>
+
         <div class="card-list">
           <div v-if="artifacts.length === 0" class="card empty-card">
             <div class="empty-card-content">
@@ -55,7 +62,24 @@
           <button class="icon-btn upload-btn" @click="triggerUpload" :disabled="!activePlanId">
             <Upload class="btn-icon-small" /> 上传
           </button>
-          <input ref="fileInput" type="file" style="display: none" @change="handleFileUpload" />
+          <input
+            ref="fileInput"
+            type="file"
+            :accept="knowledgeFileAccept"
+            style="display: none"
+            @change="handleFileUpload"
+          />
+        </div>
+
+        <div class="knowledge-upload-tip">
+          <div class="tip-title">支持上传 PDF、DOCX、TXT、MD等文本资料</div>
+          <div class="tip-detail">
+            {{
+              activePlanId
+                ? "上传后会自动进入异步解析与向量入库，完成后可在对话中直接检索引用。"
+                : "请先在左侧选择一个教学计划，再上传资料进入当前知识库。"
+            }}
+          </div>
         </div>
 
         <div class="card-list">
@@ -84,6 +108,9 @@
                   {{ getKnowledgeStatusText(file.status) }}
                 </span>
                 <span class="file-size">{{ formatBytes(file.size_bytes) }}</span>
+              </div>
+              <div class="file-subtext">
+                {{ getKnowledgeStatusDescription(file.status) }}
               </div>
             </div>
 
@@ -158,6 +185,7 @@ const fileInput = ref(null)
 const isHtmlPreviewVisible = ref(false)
 const htmlPreviewUrl = ref("")
 const htmlPreviewTitle = ref("")
+const knowledgeFileAccept = ".pdf,.docx,.txt,.md,.markdown,.csv,.json"
 
 let pollTimer = null
 
@@ -226,13 +254,24 @@ const getFileIcon = (ext) => {
 
 const getKnowledgeStatusText = (status) => {
   const map = {
-    uploaded: "待解析",
-    indexing: "解析中",
-    ready: "已就绪",
+    uploaded: "待入库",
+    indexing: "入库中",
+    ready: "可检索",
     failed: "解析失败",
     deleted: "已删除",
   }
   return map[status] || status
+}
+
+const getKnowledgeStatusDescription = (status) => {
+  const map = {
+    uploaded: "文件已上传，正在等待进入解析队列。",
+    indexing: "正在提取文本并写入向量库，请稍候。",
+    ready: " ",
+    failed: "解析失败，建议检查文件内容后重新上传。",
+    deleted: "该文件已从当前知识库移除。",
+  }
+  return map[status] || "文件状态已更新。"
 }
 
 const getKnowledgeStatusClass = (status) => {
@@ -347,7 +386,7 @@ const handleFileUpload = async (event) => {
   try {
     const res = await uploadKnowledgeFileAPI(activePlanId.value, file)
     if (res.code === 0 || res.data) {
-      ElMessage.success("上传成功，已加入异步解析队列")
+      ElMessage.success("上传成功，资料已加入异步解析与入库队列")
       fetchKnowledgeFiles()
     } else {
       ElMessage.error(res.message || "上传失败")
@@ -429,6 +468,18 @@ const deleteFile = async (file) => {
   padding: 24px 20px;
   overflow-y: auto;
   background-color: var(--bg-context);
+
+  &::-webkit-scrollbar {
+    width: 10px;
+    background: rgba(245,245,245,0.8);
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: rgba(73, 61, 206,0.7);
+    border: 2px solid #fff;
+    border-radius: 5px;
+    background-clip: padding-box;
+  }
 }
 
 .section {
@@ -457,6 +508,28 @@ const deleteFile = async (file) => {
   border-radius: 10px;
   margin-left: 8px;
   font-weight: 500;
+}
+
+.knowledge-upload-tip {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #dbe7ff;
+  background: linear-gradient(180deg, #f8fbff 0%, #f3f7ff 100%);
+}
+
+.tip-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3157b7;
+  line-height: 1.5;
+}
+
+.tip-detail {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
 .card-list {
@@ -590,6 +663,13 @@ const deleteFile = async (file) => {
   align-items: center;
   font-size: 12px;
   gap: 12px;
+}
+
+.file-subtext {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
 }
 
 .file-error {
