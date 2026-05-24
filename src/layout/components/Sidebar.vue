@@ -255,6 +255,88 @@
                   </div>
                 </template>
 
+                <template v-else-if="activeSettingsSection === 'memory'">
+                  <div class="settings-card hero-card memory-hero-card">
+                    <div>
+                      <div class="card-eyebrow">长期记忆</div>
+                      <h4>{{ currentAccount.name }}</h4>
+                      <p>这些记忆会跨会话影响助手的回答方式、偏好理解与可复用教学经验。</p>
+                    </div>
+                    <button type="button" class="memory-refresh-btn" :disabled="isMemoryLoading" @click="refreshMemories">
+                      <RefreshCw class="memory-action-icon" />
+                      刷新
+                    </button>
+                  </div>
+
+                  <div class="memory-toolbar">
+                    <div class="memory-tabs">
+                      <button
+                        type="button"
+                        class="memory-tab"
+                        :class="{ 'is-active': activeMemoryKind === 'profile' }"
+                        @click="activeMemoryKind = 'profile'"
+                      >
+                        画像偏好
+                      </button>
+                      <button
+                        type="button"
+                        class="memory-tab"
+                        :class="{ 'is-active': activeMemoryKind === 'experience' }"
+                        @click="activeMemoryKind = 'experience'"
+                      >
+                        经验记忆
+                      </button>
+                    </div>
+                    <div class="memory-search">
+                      <Search class="memory-search-icon" />
+                      <input v-model="memorySearchKeyword" type="text" placeholder="搜索记忆" />
+                    </div>
+                  </div>
+
+                  <div class="memory-list">
+                    <div v-if="isMemoryLoading" class="memory-empty">正在加载长期记忆...</div>
+                    <div v-else-if="filteredMemoryItems.length === 0" class="memory-empty">暂无匹配的长期记忆</div>
+                    <template v-else>
+                    <div v-for="memory in filteredMemoryItems" :key="memory.id" class="memory-card">
+                      <template v-if="editingMemoryId === memory.id">
+                        <input v-model="editingMemoryDraft.title" class="memory-input" type="text" placeholder="标题" />
+                        <input v-model="editingMemoryDraft.summary" class="memory-input" type="text" placeholder="摘要" />
+                        <textarea v-model="editingMemoryDraft.content" class="memory-textarea" rows="4" placeholder="完整内容"></textarea>
+                        <input v-model="editingMemoryDraft.tagsText" class="memory-input" type="text" placeholder="标签，用英文逗号分隔" />
+                        <div class="memory-card-actions">
+                          <button type="button" class="memory-icon-btn primary" title="保存" @click="saveMemory(memory)">
+                            <Save class="memory-action-icon" />
+                          </button>
+                          <button type="button" class="memory-icon-btn" title="取消" @click="cancelEditMemory">
+                            <X class="memory-action-icon" />
+                          </button>
+                        </div>
+                      </template>
+                      <template v-else>
+                        <div class="memory-card-head">
+                          <div>
+                            <h5>{{ memory.title }}</h5>
+                            <p>{{ memory.summary }}</p>
+                          </div>
+                          <div class="memory-card-actions">
+                            <button type="button" class="memory-icon-btn" title="编辑" @click="startEditMemory(memory)">
+                              <Pencil class="memory-action-icon" />
+                            </button>
+                            <button type="button" class="memory-icon-btn danger" title="删除" @click="removeMemory(memory)">
+                              <Trash2 class="memory-action-icon" />
+                            </button>
+                          </div>
+                        </div>
+                        <div v-if="memory.tags?.length" class="memory-tags">
+                          <span v-for="tag in memory.tags" :key="tag" class="memory-tag">{{ tag }}</span>
+                        </div>
+                        <div class="memory-meta">{{ memory.updated_at || memory.created_at || "未记录时间" }}</div>
+                      </template>
+                    </div>
+                    </template>
+                  </div>
+                </template>
+
                 <template v-else-if="activeSettingsSection === 'privacy'">
                   <div class="settings-card hero-card soft-card">
                     <div>
@@ -344,6 +426,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import {
   Bot,
+  Brain,
   Check,
   LogOut,
   ChevronRight,
@@ -360,12 +443,19 @@ import {
   Search,
   Settings2,
   ShieldCheck,
+  RefreshCw,
+  Save,
   Trash2,
   UserPlus,
   X,
 } from "lucide-vue-next"
-import { ElMessage } from "element-plus"
+import { ElMessage, ElMessageBox } from "element-plus"
 
+import {
+  deleteMemoryAPI,
+  getMemoryListAPI,
+  updateMemoryAPI,
+} from "@/api/memory"
 import {
   addPlanAPI,
   addSessionAPI,
@@ -376,6 +466,7 @@ import {
   updateSessionAPI,
 } from "@/api/session"
 import { useSessionStore } from "@/store/session"
+import { useUserStore } from "@/store/user"
 import { storeToRefs } from "pinia"
 
 const vFocus = {
@@ -418,6 +509,7 @@ const mockAccounts = ref([
 
 const settingsSections = [
   { key: "account", label: "账户与安全", icon: ShieldCheck },
+  { key: "memory", label: "长期记忆", icon: Brain },
   { key: "privacy", label: "隐私政策", icon: FileLock2 },
   { key: "appearance", label: "外观设置", icon: Palette },
   { key: "models", label: "大模型配置", icon: Bot },
@@ -426,22 +518,61 @@ const settingsSections = [
 const plans = ref([])
 const planSearchKeyword = ref("")
 const openPlans = ref([1])
-const activeAccountId = ref(mockAccounts.value[0].id)
 const isAccountDrawerVisible = ref(false)
 const isSettingsVisible = ref(false)
 const activeSettingsSection = ref("account")
+const activeMemoryKind = ref("profile")
+const memorySearchKeyword = ref("")
+const memoryItems = ref([])
+const isMemoryLoading = ref(false)
+const editingMemoryId = ref("")
+const editingMemoryDraft = ref({
+  title: "",
+  summary: "",
+  content: "",
+  tagsText: "",
+})
 
 const sessionStore = useSessionStore()
+const userStore = useUserStore()
 const { activeSessionId } = storeToRefs(sessionStore)
+const { activeAccountId } = storeToRefs(userStore)
 
 const currentAccount = computed(
   () => mockAccounts.value.find((account) => account.id === activeAccountId.value) || mockAccounts.value[0]
 )
 
+const filteredMemoryItems = computed(() => {
+  const keyword = memorySearchKeyword.value.trim().toLowerCase()
+  const items = memoryItems.value.filter((item) => item.kind === activeMemoryKind.value)
+  if (!keyword) {
+    return items
+  }
+  return items.filter((item) => {
+    const searchable = `${item.title || ""} ${item.summary || ""} ${item.content || ""}`.toLowerCase()
+    return searchable.includes(keyword)
+  })
+})
+
 watch(isSettingsVisible, (visible) => {
   document.body.style.overflow = visible ? "hidden" : ""
   if (visible) {
     isAccountDrawerVisible.value = false
+    if (activeSettingsSection.value === "memory") {
+      refreshMemories()
+    }
+  }
+})
+
+watch(activeSettingsSection, (section) => {
+  if (section === "memory" && isSettingsVisible.value) {
+    refreshMemories()
+  }
+})
+
+watch(activeAccountId, () => {
+  if (isSettingsVisible.value && activeSettingsSection.value === "memory") {
+    refreshMemories()
   }
 })
 
@@ -778,12 +909,97 @@ const getAccountInitials = (name) => {
   return (name || "用户").trim().slice(0, 2).toUpperCase()
 }
 
+const refreshMemories = async () => {
+  isMemoryLoading.value = true
+  try {
+    const res = await getMemoryListAPI({
+      userId: activeAccountId.value,
+    })
+    memoryItems.value = res.data?.items || []
+  } catch (error) {
+    console.error("加载长期记忆失败", error)
+    ElMessage.error("加载长期记忆失败")
+  } finally {
+    isMemoryLoading.value = false
+  }
+}
+
+const startEditMemory = (memory) => {
+  editingMemoryId.value = memory.id
+  editingMemoryDraft.value = {
+    title: memory.title || "",
+    summary: memory.summary || "",
+    content: memory.content || "",
+    tagsText: (memory.tags || []).join(", "),
+  }
+}
+
+const cancelEditMemory = () => {
+  editingMemoryId.value = ""
+  editingMemoryDraft.value = {
+    title: "",
+    summary: "",
+    content: "",
+    tagsText: "",
+  }
+}
+
+const saveMemory = async (memory) => {
+  const draft = editingMemoryDraft.value
+  const title = draft.title.trim()
+  const content = draft.content.trim()
+  if (!title || !content) {
+    ElMessage.warning("标题和内容不能为空")
+    return
+  }
+  try {
+    await updateMemoryAPI(memory.kind, memory.id, {
+      user_id: activeAccountId.value,
+      title,
+      summary: draft.summary.trim() || content.slice(0, 120),
+      content,
+      tags: draft.tagsText
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    })
+    cancelEditMemory()
+    await refreshMemories()
+    ElMessage.success("长期记忆已保存")
+  } catch (error) {
+    console.error("保存长期记忆失败", error)
+    ElMessage.error("保存长期记忆失败")
+  }
+}
+
+const removeMemory = async (memory) => {
+  try {
+    await ElMessageBox.confirm(
+      "确定删除这条长期记忆吗？删除后不会再参与后续会话。",
+      "删除长期记忆",
+      {
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+        type: "warning",
+      }
+    )
+    await deleteMemoryAPI(memory.kind, memory.id, activeAccountId.value)
+    await refreshMemories()
+    ElMessage.success("长期记忆已删除")
+  } catch (error) {
+    if (error !== "cancel") {
+      console.error("删除长期记忆失败", error)
+      ElMessage.error("删除长期记忆失败")
+    }
+  }
+}
+
 const toggleAccountDrawer = () => {
   isAccountDrawerVisible.value = !isAccountDrawerVisible.value
 }
 
 const switchAccount = (accountId) => {
-  activeAccountId.value = accountId
+  userStore.setActiveAccount(accountId)
   isAccountDrawerVisible.value = false
   ElMessage.success("已切换为演示账户")
 }
@@ -798,7 +1014,7 @@ const addMockAccount = () => {
     avatarGradient: "linear-gradient(135deg, #2563eb 0%, #06b6d4 100%)",
   }
   mockAccounts.value.unshift(newAccount)
-  activeAccountId.value = newAccount.id
+  userStore.setActiveAccount(newAccount.id)
   isAccountDrawerVisible.value = false
   ElMessage.info("已添加 mock 账户，当前仅作展示")
 }
@@ -1645,6 +1861,221 @@ const closeSettingsPanel = () => {
   color: var(--primary-color);
 }
 
+.memory-hero-card {
+  align-items: center;
+}
+
+.memory-refresh-btn,
+.memory-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  background: #ffffff;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.memory-refresh-btn {
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.memory-refresh-btn:hover,
+.memory-icon-btn:hover {
+  color: var(--primary-color);
+  border-color: rgba(79, 70, 229, 0.35);
+  background: rgba(79, 70, 229, 0.06);
+}
+
+.memory-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.memory-action-icon,
+.memory-search-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.memory-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.memory-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  background: #f1f5f9;
+}
+
+.memory-tab {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.memory-tab.is-active {
+  background: #ffffff;
+  color: var(--primary-color);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.memory-search {
+  min-width: 220px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text-disabled);
+}
+
+.memory-search input {
+  width: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 13px;
+}
+
+.memory-list {
+  display: grid;
+  gap: 12px;
+}
+
+.memory-empty {
+  padding: 24px;
+  border: 1px dashed rgba(148, 163, 184, 0.7);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.memory-card {
+  padding: 14px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.memory-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.memory-card-head h5 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+.memory-card-head p {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.memory-card-actions {
+  display: inline-flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.memory-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+
+.memory-icon-btn.primary {
+  color: var(--primary-color);
+}
+
+.memory-icon-btn.danger:hover {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.35);
+  background: rgba(220, 38, 38, 0.06);
+}
+
+.memory-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.memory-tag {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.memory-meta {
+  margin-top: 10px;
+  color: var(--text-disabled);
+  font-size: 11px;
+}
+
+.memory-input,
+.memory-textarea {
+  width: 100%;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  border-radius: 8px;
+  color: var(--text-main);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.18s ease;
+}
+
+.memory-input {
+  height: 36px;
+  padding: 0 10px;
+  margin-bottom: 8px;
+}
+
+.memory-textarea {
+  resize: vertical;
+  min-height: 96px;
+  padding: 10px;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.memory-input:focus,
+.memory-textarea:focus {
+  border-color: rgba(79, 70, 229, 0.55);
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s ease;
@@ -1695,6 +2126,16 @@ const closeSettingsPanel = () => {
 
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .memory-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .memory-search {
+    min-width: 0;
+    width: 100%;
   }
 }
 </style>

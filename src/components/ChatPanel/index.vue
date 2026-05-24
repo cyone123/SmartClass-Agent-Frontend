@@ -406,12 +406,15 @@ import { transcribeVoiceAttachmentAPI, uploadAttachmentFileAPI } from '@/api/fil
 import { getMessageHistry } from '@/api/session'
 import { useArtifactStore } from '@/store/artifact'
 import { useSessionStore } from '@/store/session'
+import { useUserStore } from '@/store/user'
 import AiMarkdownMessage from './AiMarkdownMessage.vue'
 import { normalizeMarkdownSource as normalizeMessageContent } from './markdown'
 
 const sessionStore = useSessionStore()
 const artifactStore = useArtifactStore()
+const userStore = useUserStore()
 const { activeSessionId, activeThreadId: threadId, activePlanId } = storeToRefs(sessionStore)
+const { activeAccountId } = storeToRefs(userStore)
 
 const chatBodyRef = ref(null)
 const attachmentInputRef = ref(null)
@@ -1726,7 +1729,8 @@ const requestStreamReply = async (content = '', attachmentIds = [], approval = n
 
   try {
     const payload = {
-      thread_id: threadId.value || undefined
+      thread_id: threadId.value || undefined,
+      user_id: activeAccountId.value || 'default-teacher'
     }
 
     if (content) {
