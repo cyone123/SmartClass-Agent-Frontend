@@ -414,7 +414,6 @@ const sessionStore = useSessionStore()
 const artifactStore = useArtifactStore()
 const userStore = useUserStore()
 const { activeSessionId, activeThreadId: threadId, activePlanId } = storeToRefs(sessionStore)
-const { activeAccountId } = storeToRefs(userStore)
 
 const chatBodyRef = ref(null)
 const attachmentInputRef = ref(null)
@@ -1730,7 +1729,6 @@ const requestStreamReply = async (content = '', attachmentIds = [], approval = n
   try {
     const payload = {
       thread_id: threadId.value || undefined,
-      user_id: activeAccountId.value || 'default-teacher'
     }
 
     if (content) {
@@ -1747,7 +1745,8 @@ const requestStreamReply = async (content = '', attachmentIds = [], approval = n
       method: 'POST',
       headers: {
         Accept: 'text/event-stream',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(userStore.accessToken ? { Authorization: `Bearer ${userStore.accessToken}` } : {})
       },
       body: JSON.stringify(payload),
       signal: currentAbortController.value.signal

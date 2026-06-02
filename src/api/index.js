@@ -9,6 +9,11 @@ const request = axios.create({
 // 请求拦截器
 request.interceptors.request.use(
   (config) => {
+    const token = typeof window !== 'undefined' ? window.localStorage.getItem('smartclass_access_token') : ''
+    if (token) {
+      config.headers = config.headers || {}
+      config.headers.Authorization = `Bearer ${token}`
+    }
     return config
   },
   (error) => {
@@ -22,6 +27,13 @@ request.interceptors.response.use(
     return response.data
   },
   (error) => {
+    if (error.response?.status === 401) {
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('smartclass_access_token')
+        window.localStorage.removeItem('smartclass_current_user')
+        window.dispatchEvent(new Event('smartclass-unauthorized'))
+      }
+    }
     return Promise.reject(error)
   }
 )

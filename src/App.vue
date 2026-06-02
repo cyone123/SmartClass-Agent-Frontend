@@ -1,4 +1,30 @@
 <script setup>
+import { onBeforeUnmount, onMounted } from 'vue'
+
+import { useUserStore } from '@/store/user'
+
+const userStore = useUserStore()
+
+const handleUnauthorized = () => {
+  userStore.handleUnauthorized()
+}
+
+onMounted(async () => {
+  window.addEventListener('smartclass-unauthorized', handleUnauthorized)
+  if (userStore.accessToken) {
+    try {
+      await userStore.hydrateCurrentUser()
+    } catch {
+      userStore.handleUnauthorized()
+    }
+  } else {
+    userStore.openAuthDialog('login')
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('smartclass-unauthorized', handleUnauthorized)
+})
 </script>
 
 <template>

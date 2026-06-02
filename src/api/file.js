@@ -1,5 +1,15 @@
 import request from "@/api/index"
 import axios from "axios"
+import { useUserStore } from "@/store/user"
+
+const appendAccessToken = (url) => {
+  const token = useUserStore().accessToken
+  if (!token) {
+    return url
+  }
+  const separator = url.includes("?") ? "&" : "?"
+  return `${url}${separator}access_token=${encodeURIComponent(token)}`
+}
 
 export function getFileConfigAPI(fileKind, fileId) {
   return request({
@@ -9,11 +19,11 @@ export function getFileConfigAPI(fileKind, fileId) {
 }
 
 export function getFileDownloadUrl(fileKind, fileId) {
-  return `/api/file/download/${fileKind}/${fileId}`
+  return appendAccessToken(`/api/file/download/${fileKind}/${fileId}`)
 }
 
 export function getHtmlArtifactPreviewUrl(fileId) {
-  return `/api/file/preview/artifact/${fileId}`
+  return appendAccessToken(`/api/file/preview/artifact/${fileId}`)
 }
 
 export function forceSaveAPI(key) {

@@ -13,11 +13,18 @@ export const useSessionStore = defineStore('session', () => {
       activePlanId.value = planId
     }
   }
+
+  const resetActiveSession = () => {
+    activeSessionId.value = ''
+    activeThreadId.value = ''
+    activePlanId.value = ''
+  }
   
   return {
     activeSessionId,
     activeThreadId,
     activePlanId,
+    resetActiveSession,
     setActiveSession
   }
 })

@@ -5,6 +5,7 @@
       <ChatPanel class="chat-panel" />
       <ContextPanel class="context-panel" />
     </div>
+    <AuthDialog />
   </div>
 </template>
 
@@ -12,6 +13,7 @@
 import Sidebar from './components/Sidebar.vue'
 import ChatPanel from '@/components/ChatPanel/index.vue'
 import ContextPanel from '@/components/ContextPanel/index.vue'
+import AuthDialog from '@/components/AuthDialog.vue'
 </script>
 
 <style scoped>

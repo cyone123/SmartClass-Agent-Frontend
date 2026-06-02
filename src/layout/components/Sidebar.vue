@@ -152,29 +152,26 @@
             <span class="drawer-caption"><LogOut class="log-out"/></span>
           </div>
 
-          <button
-            type="button"
-            v-for="account in mockAccounts"
-            :key="account.id"
-            class="account-row"
-            :class="{ 'is-active': account.id === activeAccountId }"
-            @click="switchAccount(account.id)"
-          >
-            <div class="account-avatar" :style="{ background: account.avatarGradient }">
-              {{ getAccountInitials(account.name) }}
+          <div class="account-row current-account-row">
+            <div class="account-avatar" :style="{ background: currentAccount.avatarGradient }">
+              {{ getAccountInitials(currentAccount.name) }}
             </div>
             <div class="account-meta">
               <div class="account-name-line">
-                <span class="account-name">{{ account.name }}</span>
-                <span v-if="account.id === activeAccountId" class="active-pill">当前</span>
+                <span class="account-name">{{ currentAccount.name }}</span>
+                <span class="active-pill">当前</span>
               </div>
-              <div class="account-subtitle">{{ account.email }}</div>
+              <div class="account-subtitle">{{ currentAccount.email }}</div>
             </div>
-          </button>
+          </div>
 
-          <button type="button" class="add-account-btn" @click="addMockAccount">
+          <button v-if="currentUser" type="button" class="add-account-btn" @click="logout">
+            <LogOut class="drawer-icon" />
+            退出登录
+          </button>
+          <button v-else type="button" class="add-account-btn" @click="openLoginDialog">
             <UserPlus class="drawer-icon" />
-            添加新账户
+            立即登录
           </button>
         </div>
       </Transition>
@@ -232,9 +229,9 @@
                     <div>
                       <div class="card-eyebrow">账户与安全</div>
                       <h4>{{ currentAccount.name }}</h4>
-                      <p>用于展示账户概览、登录设备、密码与双重验证等配置入口。</p>
+                      <p>这里展示当前登录账户、会话状态与退出入口。</p>
                     </div>
-                    <div class="hero-badge">Mock</div>
+                    <div class="hero-badge">已登录</div>
                   </div>
 
                   <div class="settings-grid">
@@ -244,13 +241,13 @@
                       <span class="card-note">角色：{{ currentAccount.role }}</span>
                     </div>
                     <div class="settings-card">
-                      <h5>最近登录设备</h5>
-                      <p>Windows · Edge 浏览器</p>
-                      <span class="card-note">上次活跃：刚刚</span>
+                      <h5>登录状态</h5>
+                      <p>当前会话已绑定 JWT access token。</p>
+                      <span class="card-note">可随时退出并重新登录。</span>
                     </div>
                     <div class="settings-card">
-                      <h5>安全建议</h5>
-                      <p>开启双重验证、设置恢复邮箱、定期检查设备列表。</p>
+                      <h5>认证说明</h5>
+                      <p>所有计划、会话、文件与产物都按当前用户隔离。</p>
                     </div>
                   </div>
                 </template>
@@ -483,30 +480,6 @@ const vFocus = {
   },
 }
 
-const mockAccounts = ref([
-  {
-    id: "teacher-1",
-    name: "陈老师",
-    role: "初中物理教师",
-    email: "chen.teacher@smartclass.mock",
-    avatarGradient: "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
-  },
-  {
-    id: "teacher-2",
-    name: "王老师",
-    role: "教研组成员",
-    email: "wang.research@smartclass.mock",
-    avatarGradient: "linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)",
-  },
-  {
-    id: "admin-1",
-    name: "教学平台主管",
-    role: "管理员",
-    email: "admin@smartclass.mock",
-    avatarGradient: "linear-gradient(135deg, #f97316 0%, #ef4444 100%)",
-  },
-])
-
 const settingsSections = [
   { key: "account", label: "账户与安全", icon: ShieldCheck },
   { key: "memory", label: "长期记忆", icon: Brain },
@@ -536,11 +509,27 @@ const editingMemoryDraft = ref({
 const sessionStore = useSessionStore()
 const userStore = useUserStore()
 const { activeSessionId } = storeToRefs(sessionStore)
-const { activeAccountId } = storeToRefs(userStore)
+const { currentUser } = storeToRefs(userStore)
 
-const currentAccount = computed(
-  () => mockAccounts.value.find((account) => account.id === activeAccountId.value) || mockAccounts.value[0]
-)
+const currentAccount = computed(() => {
+  const user = currentUser.value
+  if (!user) {
+    return {
+      name: "未登录",
+      role: "访客",
+      email: "请先登录",
+      avatarGradient: "linear-gradient(135deg, #64748b 0%, #94a3b8 100%)",
+    }
+  }
+  return {
+    name: user.display_name || user.username,
+    role: user.role === "admin" ? "系统管理员" : "教师",
+    email: user.username,
+    avatarGradient: user.role === "admin"
+      ? "linear-gradient(135deg, #f97316 0%, #ef4444 100%)"
+      : "linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)",
+  }
+})
 
 const filteredMemoryItems = computed(() => {
   const keyword = memorySearchKeyword.value.trim().toLowerCase()
@@ -570,14 +559,32 @@ watch(activeSettingsSection, (section) => {
   }
 })
 
-watch(activeAccountId, () => {
-  if (isSettingsVisible.value && activeSettingsSection.value === "memory") {
-    refreshMemories()
+watch(
+  currentUser,
+  async (user, previousUser) => {
+    if (user?.id === previousUser?.id) {
+      return
+    }
+
+    plans.value = []
+    openPlans.value = []
+    sessionStore.resetActiveSession()
+
+    if (user) {
+      await getPlanAndSessionList()
+      if (isSettingsVisible.value && activeSettingsSection.value === "memory") {
+        refreshMemories()
+      }
+    } else {
+      memoryItems.value = []
+    }
   }
-})
+)
 
 onMounted(() => {
-  getPlanAndSessionList()
+  if (currentUser.value) {
+    getPlanAndSessionList()
+  }
 })
 
 onBeforeUnmount(() => {
@@ -912,9 +919,7 @@ const getAccountInitials = (name) => {
 const refreshMemories = async () => {
   isMemoryLoading.value = true
   try {
-    const res = await getMemoryListAPI({
-      userId: activeAccountId.value,
-    })
+    const res = await getMemoryListAPI()
     memoryItems.value = res.data?.items || []
   } catch (error) {
     console.error("加载长期记忆失败", error)
@@ -954,7 +959,6 @@ const saveMemory = async (memory) => {
   }
   try {
     await updateMemoryAPI(memory.kind, memory.id, {
-      user_id: activeAccountId.value,
       title,
       summary: draft.summary.trim() || content.slice(0, 120),
       content,
@@ -983,7 +987,7 @@ const removeMemory = async (memory) => {
         type: "warning",
       }
     )
-    await deleteMemoryAPI(memory.kind, memory.id, activeAccountId.value)
+    await deleteMemoryAPI(memory.kind, memory.id)
     await refreshMemories()
     ElMessage.success("长期记忆已删除")
   } catch (error) {
@@ -998,25 +1002,15 @@ const toggleAccountDrawer = () => {
   isAccountDrawerVisible.value = !isAccountDrawerVisible.value
 }
 
-const switchAccount = (accountId) => {
-  userStore.setActiveAccount(accountId)
+const openLoginDialog = () => {
   isAccountDrawerVisible.value = false
-  ElMessage.success("已切换为演示账户")
+  userStore.openAuthDialog("login")
 }
 
-const addMockAccount = () => {
-  const nextIndex = mockAccounts.value.length + 1
-  const newAccount = {
-    id: `mock-${Date.now()}`,
-    name: `新账户 ${nextIndex}`,
-    role: "待配置身份",
-    email: `new-account-${nextIndex}@smartclass.mock`,
-    avatarGradient: "linear-gradient(135deg, #2563eb 0%, #06b6d4 100%)",
-  }
-  mockAccounts.value.unshift(newAccount)
-  userStore.setActiveAccount(newAccount.id)
+const logout = () => {
+  userStore.logout()
   isAccountDrawerVisible.value = false
-  ElMessage.info("已添加 mock 账户，当前仅作展示")
+  ElMessage.success("已退出登录")
 }
 
 const openSettingsPanel = () => {

@@ -37,6 +37,12 @@ export const useArtifactStore = defineStore("artifact", () => {
     setArtifacts(artifact.thread_id, current)
   }
 
+  const clearArtifacts = () => {
+    Object.keys(artifactsByThread).forEach((threadId) => {
+      delete artifactsByThread[threadId]
+    })
+  }
+
   const fetchArtifacts = async (threadId) => {
     if (!threadId) {
       return []
@@ -53,6 +59,7 @@ export const useArtifactStore = defineStore("artifact", () => {
 
   return {
     artifactsByThread,
+    clearArtifacts,
     currentArtifacts,
     fetchArtifacts,
     getArtifactsByThread,

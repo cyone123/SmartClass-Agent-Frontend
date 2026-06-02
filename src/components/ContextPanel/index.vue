@@ -172,10 +172,13 @@ import {
 } from "@/api/file"
 import { useArtifactStore } from "@/store/artifact"
 import { useSessionStore } from "@/store/session"
+import { useUserStore } from "@/store/user"
 
 const sessionStore = useSessionStore()
 const artifactStore = useArtifactStore()
+const userStore = useUserStore()
 const { activePlanId, activeThreadId } = storeToRefs(sessionStore)
+const { currentUser } = storeToRefs(userStore)
 
 const isPreviewVisible = ref(false)
 const previewFileId = ref(null)
@@ -326,6 +329,7 @@ const fetchKnowledgeFiles = async () => {
 
 const fetchArtifacts = async () => {
   if (!activeThreadId.value) {
+    artifactStore.clearArtifacts()
     return
   }
   try {
@@ -355,6 +359,20 @@ watch(activePlanId, () => {
 
 watch(activeThreadId, () => {
   fetchArtifacts()
+})
+
+watch(currentUser, (user, previousUser) => {
+  if (user?.id === previousUser?.id) {
+    return
+  }
+  stopPolling()
+  knowledgeFiles.value = []
+  artifactStore.clearArtifacts()
+
+  if (user) {
+    fetchKnowledgeFiles()
+    fetchArtifacts()
+  }
 })
 
 onMounted(() => {
