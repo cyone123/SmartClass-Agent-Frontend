@@ -29,6 +29,23 @@ export default defineConfig({
         target: 'http://8.155.29.72',
         changeOrigin: true,
         rewrite: path => path.replace(/^\/savefile/, '')
+      },
+      '/web-apps': {
+        target: 'http://8.155.29.72',
+        changeOrigin: true
+      },
+      '/sdkjs': {
+        target: 'http://8.155.29.72',
+        changeOrigin: true
+      },
+      '/coauthoring': {
+        target: 'http://8.155.29.72',
+        changeOrigin: true,
+        ws: true
+      },
+      '/cache': {
+        target: 'http://8.155.29.72',
+        changeOrigin: true
       }
     }
   },
